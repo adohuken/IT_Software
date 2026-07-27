@@ -1,0 +1,178 @@
+/* ========================================================
+   ESTILOS PERSONALIZADOS - TEMA OSCURO CORPORATIVO
+   ======================================================== */
+
+/* Importar Tipografía Outfit de Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+    --bg-dark-base: #0B0F19;      /* Fondo base ultra oscuro */
+    --bg-dark-card: #151D30;      /* Fondo de tarjetas / contenedores */
+    --bg-dark-nav: #0E1524;       /* Fondo barra lateral */
+    
+    --accent-blue: #3B82F6;       /* Azul Cobalto */
+    --accent-cyan: #06B6D4;       /* Cian Vibrante */
+    --accent-emerald: #10B981;    /* Verde Esmeralda */
+    --accent-rose: #F43F5E;       /* Rojo Coral/Rosa */
+    --accent-amber: #F59E0B;      /* Ambar / Alertas */
+    
+    --text-primary: #F3F4F6;      /* Texto principal claro */
+    --text-secondary: #9CA3AF;    /* Texto secundario gris */
+    --text-muted: #6B7280;        /* Texto deshabilitado o atenuado */
+    
+    --border-color: rgba(255, 255, 255, 0.06);
+    --border-color-glow: rgba(59, 130, 246, 0.2);
+}
+
+body {
+    font-family: 'Outfit', sans-serif;
+    background-color: var(--bg-dark-base);
+    color: var(--text-primary);
+    overflow-x: hidden;
+}
+
+/* Scrollbar Personalizado estilo Dark Premium */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-dark-base);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-blue);
+}
+
+/* Glassmorphism y Diseños Especiales */
+.glass-panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.glass-panel-glow {
+    background: rgba(21, 29, 48, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-glow:hover {
+    border-color: rgba(59, 130, 246, 0.4);
+    box-shadow: 0 10px 30px rgba(59, 130, 246, 0.1);
+    transform: translateY(-2px);
+}
+
+/* Gradientes de Acento */
+.grad-cyan-blue {
+    background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%);
+}
+
+.grad-rose-orange {
+    background: linear-gradient(135deg, var(--accent-rose) 0%, var(--accent-amber) 100%);
+}
+
+.grad-emerald-teal {
+    background: linear-gradient(135deg, var(--accent-emerald) 0%, #0D9488 100%);
+}
+
+.grad-dark-card {
+    background: linear-gradient(180deg, rgba(21, 29, 48, 0.9) 0%, rgba(14, 21, 36, 0.95) 100%);
+}
+
+/* Efectos Glow de Texto */
+.text-glow-cyan {
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+}
+
+.text-glow-rose {
+    text-shadow: 0 0 10px rgba(244, 63, 94, 0.5);
+}
+
+.text-glow-emerald {
+    text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+/* Animaciones de Hover y Estados Activos */
+.nav-link-active {
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0) 100%);
+    border-left: 3px solid var(--accent-blue);
+    color: #FFF;
+}
+
+.nav-link {
+    transition: all 0.2s ease-in-out;
+}
+
+.nav-link:hover {
+    background: rgba(255, 255, 255, 0.03);
+    color: #FFF;
+    padding-left: 1.5rem;
+}
+
+/* Estilos de Tablas Modernas */
+.modern-table th {
+    background-color: #f8fafc;
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.modern-table td {
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.modern-table tr:last-child td {
+    border-bottom: none;
+}
+
+.modern-table tr {
+    transition: background-color 0.2s ease;
+}
+
+.modern-table tr:hover {
+    background-color: #f8fafc;
+}
+
+/* Badges personalizados */
+.badge-pending {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: var(--accent-amber);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-progress {
+    background-color: rgba(59, 130, 246, 0.15);
+    color: #60A5FA;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.badge-success {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #34D399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-danger {
+    background-color: rgba(244, 63, 94, 0.15);
+    color: #FB7185;
+    border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+/* Tooltips e interactividad rápida */
+.tooltip-trigger:hover .tooltip-content {
+    opacity: 1;
+    visibility: visible;
+}

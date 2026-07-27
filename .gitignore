@@ -1,0 +1,11 @@
+# Archivos del sistema operativo y editores
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+.vscode/
+.idea/
+
+# Archivos temporales o backups
+*.bak
+*.swp
