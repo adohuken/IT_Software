@@ -13,7 +13,7 @@ define('DB_PORT', '3306');
 define('DB_USER', 'root');
 define('DB_PASS', '');
 define('DB_NAME', 'gestion_it');
-define('BASE_URL', '/CuentasIT/');
+define('BASE_URL', '/it_software/');
 
 class Database {
     private static $conexion = null;

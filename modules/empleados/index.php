@@ -27,7 +27,7 @@ if ($details_id > 0) {
     $ficha_empleado = $stmt->fetch();
 
     if ($ficha_empleado) {
-        // B. Buscar equipo asignado activo y sus credenciales
+        // B. Buscar equipos asignados activos y sus credenciales
         $stmt_eq = $db->prepare("
             SELECT eq.id, eq.tipo, eq.marca, eq.modelo, eq.service_tag_sn, eq.ip_direccion,
                    ce.usuario_local, ce.password_cifrado AS eq_password, ce.clave_bitlocker, ce.notas_acceso
@@ -35,24 +35,9 @@ if ($details_id > 0) {
             JOIN equipos eq ON a.equipo_id = eq.id
             LEFT JOIN credenciales_equipos ce ON ce.equipo_id = eq.id
             WHERE a.empleado_id = ? AND a.fecha_devolucion IS NULL
-            LIMIT 1
         ");
         $stmt_eq->execute([$details_id]);
-        $ficha_equipo = $stmt_eq->fetch();
-
-        // Descifrar si tiene credenciales locales
-        if ($ficha_equipo && !empty($ficha_equipo['usuario_local'])) {
-            try {
-                $ficha_equipo['password_clear'] = Security::decrypt($ficha_equipo['eq_password']);
-            } catch (Exception $e) {
-                $ficha_equipo['password_clear'] = '[Error al descifrar]';
-            }
-            try {
-                $ficha_equipo['bitlocker_clear'] = !empty($ficha_equipo['clave_bitlocker']) ? Security::decrypt($ficha_equipo['clave_bitlocker']) : 'N/A';
-            } catch (Exception $e) {
-                $ficha_equipo['bitlocker_clear'] = '[Error al descifrar]';
-            }
-        }
+        $ficha_equipos = $stmt_eq->fetchAll();
 
         // C. Buscar cuenta M365 activa y su contraseña
         $stmt_m365 = $db->prepare("
@@ -97,15 +82,22 @@ if ($details_id > 0) {
     }
 }
 
-// 1. Consulta consolidada de empleados activos y sus recursos vinculados
 $sql_empleados = "
     SELECT emp.*, s.nombre AS sucursal_nombre,
-           (SELECT CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo, ' (S/N: ', eq.service_tag_sn, ')') 
+           (SELECT COUNT(*) FROM asignaciones WHERE empleado_id = emp.id AND fecha_devolucion IS NULL) AS cant_equipos,
+           (SELECT GROUP_CONCAT(CONCAT(eq.id, ':', eq.tipo, ' - ', eq.marca, ' ', eq.modelo, ' (S/N: ', eq.service_tag_sn, ')') SEPARATOR '|') 
+            FROM asignaciones a JOIN equipos eq ON a.equipo_id = eq.id 
+            WHERE a.empleado_id = emp.id AND a.fecha_devolucion IS NULL) AS equipos_activos,
+           (SELECT GROUP_CONCAT(CONCAT(eq.tipo, ' - ', eq.marca, ' ', eq.modelo, ' (S/N: ', eq.service_tag_sn, ')') SEPARATOR ', ')
             FROM asignaciones a 
             JOIN equipos eq ON a.equipo_id = eq.id 
-            WHERE a.empleado_id = emp.id AND a.fecha_devolucion IS NULL LIMIT 1) AS equipo_vinculado,
+            WHERE a.empleado_id = emp.id AND a.fecha_devolucion IS NULL) AS equipo_vinculado,
            (SELECT correo FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS correo_m365,
-           (SELECT licencia_tipo FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS licencia_m365
+           (SELECT licencia_tipo FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS licencia_m365,
+           (SELECT password_cifrado FROM credenciales_personales WHERE empleado_id = emp.id AND tipo = 'PC PIN' LIMIT 1) AS pc_pin_cifrado,
+           (SELECT password_cifrado FROM credenciales_personales WHERE empleado_id = emp.id AND tipo = 'Pass AG' LIMIT 1) AS pass_ag_cifrado,
+           (SELECT usuario FROM credenciales_personales WHERE empleado_id = emp.id AND tipo = 'Gmail' LIMIT 1) AS correo_gmail,
+           (SELECT password_cifrado FROM credenciales_personales WHERE empleado_id = emp.id AND tipo = 'Gmail' LIMIT 1) AS password_gmail_cifrado
     FROM empleados emp
     JOIN sucursales s ON emp.sucursal_id = s.id
     WHERE emp.estado = 'Activo'
@@ -113,8 +105,16 @@ $sql_empleados = "
 ";
 $empleados = $db->query($sql_empleados)->fetchAll();
 
+foreach ($empleados as &$eRow) {
+    $eRow['pc_pin'] = !empty($eRow['pc_pin_cifrado']) ? Security::decrypt($eRow['pc_pin_cifrado']) : '';
+    $eRow['pass_gmail_plain'] = !empty($eRow['password_gmail_cifrado']) ? Security::decrypt($eRow['password_gmail_cifrado']) : '';
+    $eRow['pass_ag_plain'] = !empty($eRow['pass_ag_cifrado']) ? Security::decrypt($eRow['pass_ag_cifrado']) : '';
+}
+unset($eRow);
+
 // 2. Cargar catálogos para el modal
 $sucursales = $db->query("SELECT * FROM sucursales ORDER BY nombre")->fetchAll();
+$empresas = $db->query("SELECT * FROM empresas ORDER BY nombre")->fetchAll();
 $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_sn FROM equipos WHERE estado = 'Disponible' ORDER BY tipo, marca")->fetchAll();
 ?>
 
@@ -170,16 +170,17 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                                     <?= htmlspecialchars($emp['sucursal_nombre']) ?>
                                 </td>
                                 <td class="py-4 px-4 text-xs">
-                                    <?php if (!empty($emp['equipo_vinculado'])): ?>
-                                        <div class="text-slate-700 font-medium flex items-center gap-1.5">
-                                            <i class="fa-solid fa-laptop text-cyan-600"></i>
-                                            <span class="truncate max-w-[220px]" title="<?= htmlspecialchars($emp['equipo_vinculado']) ?>"><?= htmlspecialchars($emp['equipo_vinculado']) ?></span>
-                                        </div>
-                                    <?php else: ?>
-                                        <a href="../equipos/index.php" onclick="event.stopPropagation();" class="text-slate-400 hover:text-cyan-600 flex items-center gap-1">
-                                            <i class="fa-solid fa-link-slash"></i> Sin equipo asignado
-                                        </a>
-                                    <?php endif; ?>
+                                     <?php if ($emp['cant_equipos'] > 0): ?>
+                                         <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-50 border border-cyan-200 text-cyan-700 font-bold text-xs" title="<?= htmlspecialchars($emp['equipo_vinculado']) ?>">
+                                             <i class="fa-solid fa-laptop text-cyan-600 text-xs shrink-0"></i>
+                                             <span><?= $emp['cant_equipos'] ?> <?= $emp['cant_equipos'] == 1 ? 'Equipo' : 'Equipos' ?></span>
+                                         </div>
+                                     <?php else: ?>
+                                         <a href="../equipos/index.php" onclick="event.stopPropagation();" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 font-medium text-xs">
+                                             <i class="fa-solid fa-link-slash text-slate-400 text-xs shrink-0"></i>
+                                             <span>Sin equipos</span>
+                                         </a>
+                                     <?php endif; ?>
                                 </td>
                                 <td class="py-4 px-4 text-xs">
                                     <?php if (!empty($emp['correo_m365'])): ?>
@@ -198,16 +199,12 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                                 </td>
                                 <td class="py-4 px-4 text-center">
                                     <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
-                                        <!-- Ver Ficha Completa (Modal) -->
-                                        <button onclick='event.stopPropagation(); verDetalleEmpleado(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="h-8 w-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center text-emerald-600 transition" title="Ver Detalle Completo">
-                                            <i class="fa-solid fa-eye text-xs"></i>
-                                        </button>
                                         <!-- Ver Ficha de Credenciales (URL) -->
                                         <a href="?details_id=<?= $emp['id'] ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-emerald-600 transition" title="Ficha de Credenciales Cifradas">
                                             <i class="fa-solid fa-key text-xs"></i>
                                         </a>
                                         <!-- Editar Empleado -->
-                                        <button onclick="event.stopPropagation(); abrirEditarEmpleado(<?= $emp['id'] ?>, '<?= htmlspecialchars($emp['nombre'], ENT_QUOTES) ?>', '<?= htmlspecialchars($emp['cargo'], ENT_QUOTES) ?>', '<?= htmlspecialchars($emp['departamento'], ENT_QUOTES) ?>', <?= $emp['sucursal_id'] ?>)" class="h-8 w-8 rounded-lg hover:bg-cyan-50 flex items-center justify-center text-slate-500 hover:text-cyan-600 transition" title="Editar Empleado">
+                                        <button onclick='event.stopPropagation(); abrirEditarEmpleado(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="h-8 w-8 rounded-lg hover:bg-cyan-50 flex items-center justify-center text-slate-500 hover:text-cyan-600 transition" title="Editar Empleado">
                                             <i class="fa-solid fa-pen text-xs"></i>
                                         </button>
                                         <!-- Dar de Baja -->
@@ -238,7 +235,7 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
             <button onclick="cerrarModal('modal-onboarding')" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></button>
         </div>
 
-        <form action="guardar.php?action=onboard" method="POST" class="p-6 space-y-6">
+        <form autocomplete="off" action="guardar.php?action=onboard" method="POST" class="p-6 space-y-6">
             
             <!-- SECCIÓN 1: DATOS GENERALES DEL EMPLEADO -->
             <div class="space-y-4">
@@ -252,12 +249,13 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                     </div>
                     <div>
                         <label for="emp_suc" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Sucursal</label>
-                        <select name="sucursal_id" id="emp_suc" required 
+                        <select autocomplete="off" name="sucursal_id" id="emp_suc" required 
                                 class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400">
                             <option value="" disabled selected>Selecciona sucursal...</option>
                             <?php foreach ($sucursales as $s): ?>
                                 <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nombre']) ?></option>
                             <?php endforeach; ?>
+                            <option value="NEW_SUC" class="font-bold text-blue-600 bg-blue-50">+ Agregar nueva sucursal...</option>
                         </select>
                     </div>
                 </div>
@@ -270,8 +268,15 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                     </div>
                     <div>
                         <label for="emp_depto" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Departamento</label>
-                        <input type="text" name="departamento" id="emp_depto" required placeholder="Finanzas" 
+                        <select autocomplete="off" name="departamento" id="emp_depto" required
                                class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400">
+                            <option value="" disabled selected>Selecciona departamento...</option>
+                            <option value="Gerencia">Gerencia</option>
+                            <option value="Administración">Administración</option>
+                            <option value="IT">IT</option>
+                            <option value="Ventas">Ventas</option>
+                            <option value="Logística">Logística</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -290,7 +295,7 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label for="onb_eq" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Equipo Disponible</label>
-                            <select name="equipo_id" id="onb_eq" 
+                            <select autocomplete="off" name="equipo_id" id="onb_eq" 
                                     class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                                 <option value="" disabled selected>Selecciona un equipo libre...</option>
                                 <?php foreach ($equipos_disponibles as $eq): ?>
@@ -311,7 +316,7 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
             <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-4">
                 <div class="flex items-center justify-between">
                     <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-                        <i class="fa-solid fa-cloud text-emerald-400"></i> 3. Crear Cuenta Microsoft 365
+                        <i class="fa-solid fa-cloud text-emerald-400"></i> 3. Cuenta Microsoft 365
                     </h4>
                     <input type="checkbox" name="vincular_m365" id="chk_vin_m365" value="1" onchange="toggleOnboardingM365()" 
                            class="h-4 w-4 rounded border-gray-300 text-emerald-500 focus:ring-emerald-400 bg-slate-100">
@@ -326,7 +331,7 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                         </div>
                         <div>
                             <label for="onb_m_lic" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Tipo de Licencia</label>
-                            <select name="m365_licencia" id="onb_m_lic" 
+                            <select autocomplete="off" name="m365_licencia" id="onb_m_lic" 
                                     class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400">
                                 <option value="Microsoft 365 Business Basic">M365 Business Basic</option>
                                 <option value="Microsoft 365 Business Standard" selected>M365 Business Standard</option>
@@ -340,22 +345,9 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                                    class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400">
                         </div>
                     </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label for="onb_m_date" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Fecha Inicialización</label>
-                            <input type="date" name="m365_fecha_init" id="onb_m_date" value="<?= date('Y-m-d') ?>" 
-                                   class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400">
-                        </div>
-                        <div>
-                            <label for="onb_m_cic" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Ciclo de Facturación</label>
-                            <select name="m365_ciclo" id="onb_m_cic" 
-                                    class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400">
-                                <option value="Mensual" selected>Mensual</option>
-                                <option value="Anual">Anual</option>
-                            </select>
-                        </div>
-                    </div>
+                    <!-- Fecha de inicialización automática (hoy) -->
+                    <input type="hidden" name="m365_fecha_init" value="<?= date('Y-m-d') ?>">
+                    <input type="hidden" name="m365_ciclo" value="Mensual">
                 </div>
             </div>
 
@@ -390,24 +382,7 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                         </div>
                     </div>
 
-                    <!-- Correo Corporativo -->
-                    <div>
-                        <p class="text-[11px] font-bold text-blue-500 uppercase tracking-wider flex items-center gap-1 mb-2">
-                            <i class="fa-solid fa-envelope"></i> Correo Corporativo (sin M365)
-                        </p>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label for="onb_correo" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Correo Empresarial</label>
-                                <input type="email" name="correo" id="onb_correo" placeholder="usuario@empresa.com"
-                                       class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-sm text-slate-800 focus:outline-none focus:border-blue-400">
-                            </div>
-                            <div>
-                                <label for="onb_pass_correo" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Contraseña Correo</label>
-                                <input type="password" name="pass_correo" id="onb_pass_correo" placeholder="Contraseña del correo"
-                                       class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-sm text-slate-800 focus:outline-none focus:border-blue-400">
-                            </div>
-                        </div>
-                    </div>
+
 
                     <!-- PC / AG -->
                     <div>
@@ -448,7 +423,12 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
 
 <script>
     function abrirModal(id) {
-        document.getElementById(id).classList.remove('hidden');
+        const modal = document.getElementById(id);
+        modal.querySelectorAll('form').forEach(function(f) { f.reset(); });
+        modal.querySelectorAll('select').forEach(function(s) {
+            if (!s.closest('form')) s.selectedIndex = 0;
+        });
+        modal.classList.remove('hidden');
     }
     
     function cerrarModal(id) {
@@ -535,7 +515,7 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                 </div>
                 <div>
                     <h4 class="font-bold text-slate-800"><?= htmlspecialchars($ficha_empleado['nombre']) ?></h4>
-                    <p class="text-xs text-slate-500"><?= htmlspecialchars($ficha_empleado['cargo'] . ' &bull; ' . $ficha_empleado['departamento']) ?></p>
+                    <p class="text-xs text-slate-500"><?= htmlspecialchars($ficha_empleado['cargo'] ?? '') ?> &bull; <?= htmlspecialchars($ficha_empleado['departamento'] ?? '') ?></p>
                     <p class="text-[10px] text-slate-400 mt-0.5">Sucursal: <?= htmlspecialchars($ficha_empleado['sucursal_nombre']) ?></p>
                 </div>
             </div>
@@ -545,38 +525,55 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                 <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
                     <i class="fa-solid fa-laptop text-cyan-400"></i> Hardware Vinculado
                 </h5>
-                <?php if ($ficha_equipo): ?>
-                    <div class="bg-slate-100 border border-slate-200 rounded-2xl p-4 space-y-3">
-                        <div class="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
-                            <span class="font-bold text-slate-800"><?= htmlspecialchars($ficha_equipo['tipo'] . ' ' . $ficha_equipo['marca'] . ' ' . $ficha_equipo['modelo']) ?></span>
-                            <span class="text-slate-400 font-mono">S/N: <?= htmlspecialchars($ficha_equipo['service_tag_sn']) ?></span>
-                        </div>
-                        <?php if (!empty($ficha_equipo['usuario_local'])): ?>
-                            <div class="grid grid-cols-2 gap-3 text-xs">
-                                <div>
-                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Usuario Local</span>
-                                    <div class="text-slate-600 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200"><?= htmlspecialchars($ficha_equipo['usuario_local']) ?></div>
-                                </div>
-                                <div>
-                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Contraseña Windows</span>
-                                    <div class="text-cyan-400 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all"><?= htmlspecialchars($ficha_equipo['password_clear']) ?></div>
-                                </div>
+                <?php if (!empty($ficha_equipos)): ?>
+                    <?php foreach ($ficha_equipos as $ficha_equipo): 
+                        $password_clear = '';
+                        $bitlocker_clear = 'N/A';
+                        if (!empty($ficha_equipo['usuario_local'])) {
+                            try {
+                                $password_clear = !empty($ficha_equipo['eq_password']) ? Security::decrypt($ficha_equipo['eq_password']) : '';
+                            } catch (Exception $e) {
+                                $password_clear = '[Error al descifrar]';
+                            }
+                            try {
+                                $bitlocker_clear = !empty($ficha_equipo['clave_bitlocker']) ? Security::decrypt($ficha_equipo['clave_bitlocker']) : 'N/A';
+                            } catch (Exception $e) {
+                                $bitlocker_clear = '[Error al descifrar]';
+                            }
+                        }
+                    ?>
+                        <div class="bg-slate-100 border border-slate-200 rounded-2xl p-4 space-y-3 mb-3 last:mb-0">
+                            <div class="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
+                                <span class="font-bold text-slate-800"><?= htmlspecialchars($ficha_equipo['tipo'] . ' ' . $ficha_equipo['marca'] . ' ' . $ficha_equipo['modelo']) ?></span>
+                                <span class="text-slate-400 font-mono">S/N: <?= htmlspecialchars($ficha_equipo['service_tag_sn']) ?></span>
                             </div>
-                            <?php if (!empty($ficha_equipo['clave_bitlocker'])): ?>
-                                <div class="text-xs pt-1">
-                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Clave BitLocker de Recuperación</span>
-                                    <div class="text-amber-400 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all whitespace-pre-wrap break-all text-[11px]"><?= htmlspecialchars($ficha_equipo['bitlocker_clear']) ?></div>
+                            <?php if (!empty($ficha_equipo['usuario_local'])): ?>
+                                <div class="grid grid-cols-2 gap-3 text-xs">
+                                    <div>
+                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Usuario Local</span>
+                                        <div class="text-slate-600 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200"><?= htmlspecialchars($ficha_equipo['usuario_local']) ?></div>
+                                    </div>
+                                    <div>
+                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Contraseña Windows</span>
+                                        <div class="text-cyan-400 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all"><?= htmlspecialchars($password_clear) ?></div>
+                                    </div>
                                 </div>
+                                <?php if (!empty($ficha_equipo['clave_bitlocker'])): ?>
+                                    <div class="text-xs pt-1">
+                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Clave BitLocker de Recuperación</span>
+                                        <div class="text-amber-400 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all whitespace-pre-wrap break-all text-[11px]"><?= htmlspecialchars($bitlocker_clear) ?></div>
+                                    </div>
+                                <?php endif; ?>
+                                <?php if (!empty($ficha_equipo['notes_acceso']) || !empty($ficha_equipo['notas_acceso'])): ?>
+                                    <div class="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                                        <strong class="text-slate-800">Notas de acceso:</strong> <?= htmlspecialchars($ficha_equipo['notas_acceso'] ?? $ficha_equipo['notes_acceso']) ?>
+                                    </div>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <p class="text-xs text-slate-400 italic">El hardware no tiene credenciales de acceso registradas.</p>
                             <?php endif; ?>
-                            <?php if (!empty($ficha_equipo['notas_acceso'])): ?>
-                                <div class="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                                    <strong class="text-slate-800">Notas de acceso:</strong> <?= htmlspecialchars($ficha_equipo['notas_acceso']) ?>
-                                </div>
-                            <?php endif; ?>
-                        <?php else: ?>
-                            <p class="text-xs text-slate-400 italic">El hardware no tiene credenciales de acceso registradas.</p>
-                        <?php endif; ?>
-                    </div>
+                        </div>
+                    <?php endforeach; ?>
                 <?php else: ?>
                     <div class="text-xs text-slate-400 italic bg-slate-100 border border-slate-200 rounded-2xl p-4">
                         Ningún hardware de inventario está asignado actualmente a este colaborador.
@@ -668,19 +665,90 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
 
 <script>
     function abrirModal(id) {
-        document.getElementById(id).classList.remove('hidden');
+        const modal = document.getElementById(id);
+        const isEditOrDetail = id.includes('edit') || id.includes('det') || id.includes('ficha');
+        if (!isEditOrDetail) {
+            // Reset all forms inside the modal to prevent browser-cached values
+            modal.querySelectorAll('form').forEach(function(f) { f.reset(); });
+            // Reset standalone selects (not in forms) to their first option
+            modal.querySelectorAll('select').forEach(function(s) {
+                if (!s.closest('form')) s.selectedIndex = 0;
+            });
+        }
+        modal.classList.remove('hidden');
     }
     
     function cerrarModal(id) {
         document.getElementById(id).classList.add('hidden');
     }
 
-    function abrirEditarEmpleado(id, nombre, cargo, departamento, sucursalId) {
-        document.getElementById('edit_emp_id').value = id;
-        document.getElementById('edit_emp_nombre').value = nombre;
-        document.getElementById('edit_emp_cargo').value = cargo;
-        document.getElementById('edit_emp_departamento').value = departamento;
-        document.getElementById('edit_emp_sucursal').value = sucursalId;
+    const equiposDisponibles = <?= json_encode($equipos_disponibles, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
+    function abrirEditarEmpleado(emp) {
+        document.getElementById('edit_emp_id').value = emp.id || '';
+        document.getElementById('edit_emp_nombre').value = emp.nombre || '';
+        document.getElementById('edit_emp_cargo').value = emp.cargo || '';
+        document.getElementById('edit_emp_departamento').value = emp.departamento || '';
+        document.getElementById('edit_emp_sucursal').value = emp.sucursal_id || '';
+
+        // Popular credenciales personales
+        document.getElementById('edit_emp_pin').value = emp.pc_pin || '';
+        document.getElementById('edit_emp_pass_ag').value = emp.pass_ag_plain || '';
+        document.getElementById('edit_emp_gmail').value = emp.correo_gmail || '';
+        document.getElementById('edit_emp_pass_gmail').value = emp.pass_gmail_plain || '';
+
+        // Popular equipos actualmente asignados
+        const eqContainer = document.getElementById('edit_emp_equipos_actuales_container');
+        if (eqContainer) {
+            eqContainer.innerHTML = '';
+            const eqActivosStr = emp.equipos_activos || '';
+            const eqActivos = eqActivosStr ? eqActivosStr.split('|').map(item => {
+                const idx = item.indexOf(':');
+                if (idx === -1) return { id: '', desc: item };
+                return { id: item.substring(0, idx), desc: item.substring(idx + 1) };
+            }) : [];
+
+            if (eqActivos.length === 0) {
+                eqContainer.innerHTML = '<span class="text-xs text-slate-400 font-medium italic block py-1">Sin equipos vinculados actualmente.</span>';
+            } else {
+                eqActivos.forEach(eq => {
+                    const label = document.createElement('label');
+                    label.className = "flex items-center gap-2 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl p-2.5 cursor-pointer hover:bg-slate-200 transition";
+                    
+                    const chk = document.createElement('input');
+                    chk.type = 'checkbox';
+                    chk.name = 'desasignar_equipos[]';
+                    chk.value = eq.id;
+                    chk.className = 'h-4 w-4 text-rose-500 focus:ring-rose-400 rounded border-gray-300';
+                    
+                    const spanMark = document.createElement('span');
+                    spanMark.className = 'text-rose-600 font-bold';
+                    spanMark.innerText = '[Marcar para Desasignar]';
+                    
+                    const spanDesc = document.createElement('span');
+                    spanDesc.className = 'text-slate-600 font-mono';
+                    spanDesc.innerText = eq.desc;
+                    
+                    label.appendChild(chk);
+                    label.appendChild(spanMark);
+                    label.appendChild(spanDesc);
+                    eqContainer.appendChild(label);
+                });
+            }
+        }
+
+        // Popular select para asignar nuevo equipo
+        const newEqSelect = document.getElementById('edit_emp_nuevo_equipo_id');
+        if (newEqSelect) {
+            newEqSelect.innerHTML = '<option value="">-- Seleccionar equipo para agregar... --</option>';
+            equiposDisponibles.forEach(eq => {
+                const opt = document.createElement('option');
+                opt.value = eq.id;
+                opt.innerText = `[${eq.tipo}] ${eq.marca} ${eq.modelo} (${eq.service_tag_sn})`;
+                newEqSelect.appendChild(opt);
+            });
+        }
+
         abrirModal('modal-editar-empleado');
     }
 </script>
@@ -702,7 +770,7 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
             </button>
         </div>
 
-        <form action="guardar.php?action=editar" method="POST" class="p-6 overflow-y-auto custom-scrollbar space-y-6">
+        <form autocomplete="off" action="guardar.php?action=editar" method="POST" class="p-6 overflow-y-auto custom-scrollbar space-y-6">
             <input type="hidden" name="id" id="edit_emp_id">
             
             <div class="space-y-4">
@@ -714,10 +782,11 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                 
                 <div>
                     <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Sucursal</label>
-                    <select name="sucursal_id" id="edit_emp_sucursal" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400">
+                    <select autocomplete="off" name="sucursal_id" id="edit_emp_sucursal" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400">
                         <?php foreach ($sucursales as $suc): ?>
                             <option value="<?= $suc['id'] ?>"><?= htmlspecialchars($suc['nombre']) ?></option>
                         <?php endforeach; ?>
+                        <option value="NEW_SUC" class="font-bold text-blue-600 bg-blue-50">+ Agregar nueva sucursal...</option>
                     </select>
                 </div>
                 
@@ -729,8 +798,65 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                     </div>
                     <div>
                         <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Departamento</label>
-                        <input type="text" name="departamento" id="edit_emp_departamento" required
+                        <select autocomplete="off" name="departamento" id="edit_emp_departamento" required
                                class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400">
+                            <option value="Gerencia">Gerencia</option>
+                            <option value="Administración">Administración</option>
+                            <option value="IT">IT</option>
+                            <option value="Ventas">Ventas</option>
+                            <option value="Logística">Logística</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ASIGNACIÓN DE HARDWARE -->
+            <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-4">
+                <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-200 pb-2">
+                    <i class="fa-solid fa-laptop text-cyan-500"></i> Asignación de Equipo
+                </h4>
+                <div>
+                    <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Equipos Actualmente Asignados</label>
+                    <div id="edit_emp_equipos_actuales_container" class="space-y-2 mb-3">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </div>
+                <div>
+                    <label for="edit_emp_nuevo_equipo_id" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Asignar Nuevo Equipo (Opcional)</label>
+                    <select autocomplete="off" name="nuevo_equipo_id" id="edit_emp_nuevo_equipo_id" 
+                            class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                        <!-- Populated dynamically via JS -->
+                    </select>
+                </div>
+            </div>
+
+            <!-- CREDENCIALES PERSONALES -->
+            <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-4">
+                <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-200 pb-2">
+                    <i class="fa-solid fa-key text-amber-500"></i> Credenciales Personales
+                </h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="edit_emp_pin" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">PC PIN / Acceso</label>
+                        <input type="text" name="pc_pin" id="edit_emp_pin" placeholder="Ej: 1234 o N/A"
+                               class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                    </div>
+                    <div>
+                        <label for="edit_emp_pass_ag" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Contraseña AG / Sistema</label>
+                        <input type="text" name="pass_ag" id="edit_emp_pass_ag" placeholder="Ej: Vmaster#2026"
+                               class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 font-mono">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                    <div>
+                        <label for="edit_emp_gmail" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Correo Gmail</label>
+                        <input type="email" name="correo_gmail" id="edit_emp_gmail" placeholder="usuario@gmail.com"
+                               class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 font-mono">
+                    </div>
+                    <div>
+                        <label for="edit_emp_pass_gmail" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Contraseña Gmail</label>
+                        <input type="text" name="pass_gmail" id="edit_emp_pass_gmail" placeholder="Ej: PassGmail#2026"
+                               class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 font-mono">
                     </div>
                 </div>
             </div>
@@ -811,9 +937,12 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
         document.getElementById('demp_sucursal').innerText = emp.sucursal_nombre || '--';
         document.getElementById('demp_initials').innerText = (emp.nombre || 'E').charAt(0).toUpperCase();
 
-        document.getElementById('demp_equipo').innerHTML = emp.equipo_vinculado 
-            ? '<i class="fa-solid fa-laptop text-cyan-600"></i> ' + emp.equipo_vinculado 
-            : '<span class="text-slate-400 font-normal italic">Sin equipo asignado</span>';
+        let equipoHtml = '<span class="text-slate-400 font-normal italic">Sin equipo asignado</span>';
+        if (emp.equipo_vinculado) {
+            const eqList = emp.equipo_vinculado.split(', ');
+            equipoHtml = eqList.map(eq => `<div class="flex items-center gap-1.5"><i class="fa-solid fa-laptop text-cyan-600 text-xs shrink-0"></i> <span>${escapeHtml(eq)}</span></div>`).join('');
+        }
+        document.getElementById('demp_equipo').innerHTML = equipoHtml;
 
         document.getElementById('demp_m365').innerHTML = emp.correo_m365 
             ? '<i class="fa-solid fa-cloud text-emerald-500"></i> ' + emp.correo_m365 + ' <span class="text-[10px] text-slate-400 font-normal">(' + (emp.licencia_m365 || '') + ')</span>' 
@@ -825,7 +954,145 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
     }
 </script>
 
+
+
+<!-- Modal Agregar Nueva Sucursal (inline) -->
+<div id="modal-nueva-sucursal" class="fixed inset-0 z-[200] hidden">
+    <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onclick="cancelarNuevaSucursal()"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div class="p-5 bg-gradient-to-r from-emerald-50 to-cyan-50 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="font-bold text-slate-800 flex items-center gap-2 text-sm">
+                <i class="fa-solid fa-building text-emerald-500"></i> Registrar Nueva Sucursal
+            </h3>
+            <button onclick="cancelarNuevaSucursal()" class="h-7 w-7 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 hover:text-rose-400 transition shadow-sm text-xs">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="p-5 space-y-4">
+            <div>
+                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Empresa</label>
+                <select autocomplete="off" id="ns_empresa_id" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400">
+                    <option value="" disabled selected>Selecciona empresa...</option>
+                    <?php foreach ($empresas as $emp): ?>
+                        <option value="<?= $emp['id'] ?>"><?= htmlspecialchars($emp['nombre']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Nombre de la Sucursal</label>
+                <input type="text" id="ns_nombre" placeholder="Ej: Mastertec Estelí" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400">
+            </div>
+            <div class="flex gap-3 pt-1">
+                <button type="button" onclick="cancelarNuevaSucursal()" class="flex-1 py-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition">
+                    Cancelar
+                </button>
+                <button type="button" onclick="confirmarNuevaSucursal()" class="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm tracking-wide shadow-lg shadow-emerald-500/20 transition">
+                    <i class="fa-solid fa-check mr-1"></i> Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Track which select triggered the "new sucursal" modal
+    let _sucSelectOrigin = null;
+    let _previousSucValue = '';
+
+    // Reset all form fields on page load to prevent browser caching
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('form').forEach(f => f.reset());
+        // Also reset standalone selects not inside forms
+        const nsEmpresa = document.getElementById('ns_empresa_id');
+        if (nsEmpresa) nsEmpresa.selectedIndex = 0;
+        const nsNombre = document.getElementById('ns_nombre');
+        if (nsNombre) nsNombre.value = '';
+    });
+
+    function abrirModalNuevaSucursal(originSelect) {
+        _sucSelectOrigin = originSelect;
+        _previousSucValue = '';
+        // Reset modal fields every time it opens
+        document.getElementById('ns_empresa_id').selectedIndex = 0;
+        document.getElementById('ns_nombre').value = '';
+        document.getElementById('modal-nueva-sucursal').classList.remove('hidden');
+    }
+
+    // Listen for "NEW_SUC" selection on both selects
+    document.getElementById('emp_suc').addEventListener('change', function() {
+        if (this.value === 'NEW_SUC') abrirModalNuevaSucursal(this);
+    });
+    document.getElementById('edit_emp_sucursal').addEventListener('change', function() {
+        if (this.value === 'NEW_SUC') abrirModalNuevaSucursal(this);
+    });
+
+    function cancelarNuevaSucursal() {
+        document.getElementById('modal-nueva-sucursal').classList.add('hidden');
+        if (_sucSelectOrigin) {
+            // Reset to first real option
+            _sucSelectOrigin.selectedIndex = 0;
+        }
+        document.getElementById('ns_nombre').value = '';
+        _sucSelectOrigin = null;
+    }
+
+    function confirmarNuevaSucursal() {
+        const nombre = document.getElementById('ns_nombre').value.trim();
+        const empresaSelect = document.getElementById('ns_empresa_id');
+        const empresaId = empresaSelect.value;
+
+        if (!empresaId) {
+            empresaSelect.focus();
+            empresaSelect.classList.add('border-rose-400', 'ring-1', 'ring-rose-400');
+            setTimeout(() => { empresaSelect.classList.remove('border-rose-400', 'ring-1', 'ring-rose-400'); }, 2000);
+            return;
+        }
+
+        if (!nombre) {
+            document.getElementById('ns_nombre').focus();
+            document.getElementById('ns_nombre').classList.add('border-rose-400', 'ring-1', 'ring-rose-400');
+            setTimeout(() => { document.getElementById('ns_nombre').classList.remove('border-rose-400', 'ring-1', 'ring-rose-400'); }, 2000);
+            return;
+        }
+
+        if (_sucSelectOrigin) {
+            // Keep NEW_SUC selected — the backend will read the hidden fields
+            // Inject hidden fields into the same form
+            const form = _sucSelectOrigin.closest('form');
+
+            // Remove any previous hidden fields
+            form.querySelectorAll('.nueva-suc-hidden').forEach(el => el.remove());
+
+            const hiddenNombre = document.createElement('input');
+            hiddenNombre.type = 'hidden';
+            hiddenNombre.name = 'nueva_sucursal_nombre';
+            hiddenNombre.value = nombre;
+            hiddenNombre.className = 'nueva-suc-hidden';
+            form.appendChild(hiddenNombre);
+
+            const hiddenEmpresa = document.createElement('input');
+            hiddenEmpresa.type = 'hidden';
+            hiddenEmpresa.name = 'nueva_sucursal_empresa';
+            hiddenEmpresa.value = empresaId;
+            hiddenEmpresa.className = 'nueva-suc-hidden';
+            form.appendChild(hiddenEmpresa);
+
+            // Show a visual badge next to the select
+            let badge = _sucSelectOrigin.parentElement.querySelector('.nueva-suc-badge');
+            if (!badge) {
+                badge = document.createElement('div');
+                badge.className = 'nueva-suc-badge mt-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 flex items-center gap-1.5';
+                _sucSelectOrigin.parentElement.appendChild(badge);
+            }
+            badge.innerHTML = '<i class="fa-solid fa-circle-check text-emerald-500"></i> Nueva: <strong>' + escapeHtml(nombre) + '</strong>';
+        }
+
+        document.getElementById('modal-nueva-sucursal').classList.add('hidden');
+        document.getElementById('ns_nombre').value = '';
+        _sucSelectOrigin = null;
+    }
+</script>
+
 <?php
 require_once __DIR__ . '/../../includes/footer.php';
 ?>
-

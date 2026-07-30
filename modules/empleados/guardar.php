@@ -25,7 +25,21 @@ try {
         // 1. Procesar Alta Consolidada (Onboarding)
         if ($action === 'onboard') {
             $nombre      = trim($_POST['nombre']);
-            $sucursal_id = (int)$_POST['sucursal_id'];
+            $sucursal_id_raw = $_POST['sucursal_id'];
+
+            // Si el usuario eligió crear nueva sucursal
+            if ($sucursal_id_raw === 'NEW_SUC') {
+                $nueva_suc_nombre = trim($_POST['nueva_sucursal_nombre'] ?? '');
+                $nueva_suc_empresa = (int)($_POST['nueva_sucursal_empresa'] ?? 1);
+                if (empty($nueva_suc_nombre)) {
+                    throw new Exception('Debe ingresar el nombre de la nueva sucursal.');
+                }
+                $stmtNewSuc = $db->prepare("INSERT INTO sucursales (empresa_id, nombre, ubicacion) VALUES (?, ?, '')");
+                $stmtNewSuc->execute([$nueva_suc_empresa, $nueva_suc_nombre]);
+                $sucursal_id = (int)$db->lastInsertId();
+            } else {
+                $sucursal_id = (int)$sucursal_id_raw;
+            }
             $cargo       = trim($_POST['cargo']);
             $departamento = trim($_POST['departamento']);
 
@@ -125,10 +139,38 @@ try {
         if ($action === 'editar') {
             $id = (int)$_POST['id'];
             $nombre = trim($_POST['nombre']);
-            $sucursal_id = (int)$_POST['sucursal_id'];
+            $sucursal_id_raw = $_POST['sucursal_id'];
+
+            // Si el usuario eligió crear nueva sucursal
+            if ($sucursal_id_raw === 'NEW_SUC') {
+                $nueva_suc_nombre = trim($_POST['nueva_sucursal_nombre'] ?? '');
+                $nueva_suc_empresa = (int)($_POST['nueva_sucursal_empresa'] ?? 1);
+                if (empty($nueva_suc_nombre)) {
+                    throw new Exception('Debe ingresar el nombre de la nueva sucursal.');
+                }
+                $stmtNewSuc = $db->prepare("INSERT INTO sucursales (empresa_id, nombre, ubicacion) VALUES (?, ?, '')");
+                $stmtNewSuc->execute([$nueva_suc_empresa, $nueva_suc_nombre]);
+                $sucursal_id = (int)$db->lastInsertId();
+            } else {
+                $sucursal_id = (int)$sucursal_id_raw;
+            }
             $cargo = trim($_POST['cargo']);
             $departamento = trim($_POST['departamento']);
 
+            // Credenciales Personales
+            $correo_gmail = trim($_POST['correo_gmail'] ?? '');
+            $pass_gmail_raw = $_POST['pass_gmail'] ?? '';
+            $pc_pin_raw = $_POST['pc_pin'] ?? '';
+            $pass_ag_raw = $_POST['pass_ag'] ?? '';
+
+            // Cifrar campos sensibles
+            $pass_gmail_enc = !empty($pass_gmail_raw) ? Security::encrypt($pass_gmail_raw) : null;
+            $pc_pin_enc = !empty($pc_pin_raw) ? Security::encrypt($pc_pin_raw) : null;
+            $pass_ag_enc = !empty($pass_ag_raw) ? Security::encrypt($pass_ag_raw) : null;
+
+                        $db->beginTransaction();
+
+            // A. Actualizar empleados
             $stmt_up = $db->prepare("
                 UPDATE empleados 
                 SET sucursal_id = ?, nombre = ?, cargo = ?, departamento = ? 
@@ -136,7 +178,80 @@ try {
             ");
             $stmt_up->execute([$sucursal_id, $nombre, $cargo, $departamento, $id]);
 
-            $_SESSION['flash_success'] = "Información del colaborador actualizada correctamente.";
+            // B. Actualizar Credenciales Personales
+
+            // Gmail
+            $stmtGmailCheck = $db->prepare("SELECT id FROM credenciales_personales WHERE empleado_id = ? AND tipo = 'Gmail' LIMIT 1");
+            $stmtGmailCheck->execute([$id]);
+            $gmailId = $stmtGmailCheck->fetchColumn();
+
+            if ($gmailId) {
+                $db->prepare("UPDATE credenciales_personales SET usuario = ?, password_cifrado = ? WHERE id = ?")
+                   ->execute([$correo_gmail, $pass_gmail_enc, $gmailId]);
+            } else {
+                if (!empty($correo_gmail) || !empty($pass_gmail_enc)) {
+                    $db->prepare("INSERT INTO credenciales_personales (empleado_id, tipo, usuario, password_cifrado) VALUES (?, 'Gmail', ?, ?)")
+                       ->execute([$id, $correo_gmail, $pass_gmail_enc]);
+                }
+            }
+
+            // PC PIN
+            $stmtPinCheck = $db->prepare("SELECT id FROM credenciales_personales WHERE empleado_id = ? AND tipo = 'PC PIN' LIMIT 1");
+            $stmtPinCheck->execute([$id]);
+            $pinId = $stmtPinCheck->fetchColumn();
+
+            if ($pinId) {
+                $db->prepare("UPDATE credenciales_personales SET password_cifrado = ? WHERE id = ?")
+                   ->execute([$pc_pin_enc, $pinId]);
+            } else {
+                if (!empty($pc_pin_enc)) {
+                    $db->prepare("INSERT INTO credenciales_personales (empleado_id, tipo, password_cifrado) VALUES (?, 'PC PIN', ?)")
+                       ->execute([$id, $pc_pin_enc]);
+                }
+            }
+
+            // Pass AG
+            $stmtAgCheck = $db->prepare("SELECT id FROM credenciales_personales WHERE empleado_id = ? AND tipo = 'Pass AG' LIMIT 1");
+            $stmtAgCheck->execute([$id]);
+            $agId = $stmtAgCheck->fetchColumn();
+
+            if ($agId) {
+                $db->prepare("UPDATE credenciales_personales SET password_cifrado = ? WHERE id = ?")
+                   ->execute([$pass_ag_enc, $agId]);
+            } else {
+                if (!empty($pass_ag_enc)) {
+                    $db->prepare("INSERT INTO credenciales_personales (empleado_id, tipo, password_cifrado) VALUES (?, 'Pass AG', ?)")
+                       ->execute([$id, $pass_ag_enc]);
+                }
+            }
+
+            // C. Manejo de la asignación del equipo
+
+            // Desasignar marcados
+            $desasignar_equipos = $_POST['desasignar_equipos'] ?? [];
+            if (!empty($desasignar_equipos)) {
+                foreach ($desasignar_equipos as $eq_id) {
+                    $eq_id = (int)$eq_id;
+                    // Cerrar asignación
+                    $db->prepare("UPDATE asignaciones SET fecha_devolucion = CURRENT_DATE(), condicion_entrega = CONCAT(condicion_entrega, ' | Liberado en Edición Colaborador') WHERE empleado_id = ? AND equipo_id = ? AND fecha_devolucion IS NULL")->execute([$id, $eq_id]);
+                    // Liberar equipo
+                    $db->prepare("UPDATE equipos SET estado = 'Disponible' WHERE id = ?")->execute([$eq_id]);
+                }
+            }
+
+            // Asignar nuevo si se seleccionó
+            $nuevo_equipo_id = !empty($_POST['nuevo_equipo_id']) ? (int)$_POST['nuevo_equipo_id'] : null;
+            if ($nuevo_equipo_id) {
+                // Crear asignación
+                $stmtAsigNew = $db->prepare("INSERT INTO asignaciones (equipo_id, empleado_id, fecha_entrega, condicion_entrega) VALUES (?, ?, CURRENT_DATE(), 'Buen Estado')");
+                $stmtAsigNew->execute([$nuevo_equipo_id, $id]);
+                // Marcar equipo como asignado
+                $db->prepare("UPDATE equipos SET estado = 'Asignado' WHERE id = ?")->execute([$nuevo_equipo_id]);
+            }
+
+            $db->commit();
+
+            $_SESSION['flash_success'] = "Información del colaborador y sus recursos vinculados actualizada correctamente.";
             header('Location: index.php');
             exit;
         }

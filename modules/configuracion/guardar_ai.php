@@ -22,7 +22,7 @@ $modelos_validos = [
     'deepseek-chat', 'deepseek-reasoner',
     'gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo',
     'llama3-8b-8192', 'llama3-70b-8192', 'mixtral-8x7b-32768',
-    'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'
+    'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.5-flash'
 ];
 if (!in_array($model, $modelos_validos)) {
     $model = 'deepseek-chat';

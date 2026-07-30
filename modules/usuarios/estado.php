@@ -22,6 +22,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             $db = Database::getConexion();
+            $stmt_check = $db->prepare("SELECT nombre, email FROM equipo_it WHERE id = ?");
+            $stmt_check->execute([$target_user_id]);
+            $target_user = $stmt_check->fetch();
+            if ($target_user) {
+                $isMainAdmin = ($target_user_id == 1 || strtolower(trim($target_user['nombre'])) === 'administrador it' || $target_user['email'] === 'admin@mastertec.com.ni' || $target_user['email'] === 'test@empresa.com.ni');
+                if ($isMainAdmin) {
+                    $_SESSION['flash_error'] = "El usuario Administrador IT principal está protegido y no se puede desactivar.";
+                    header('Location: index.php');
+                    exit;
+                }
+            }
+
             $stmt = $db->prepare("UPDATE equipo_it SET estado = ? WHERE id = ?");
             $stmt->execute([$nuevo_estado, $target_user_id]);
 

@@ -126,24 +126,33 @@ require_once __DIR__ . '/../../includes/header.php';
                                 
                                 <td class="px-6 py-4 text-center">
                                     <div class="flex items-center justify-center gap-2">
-                                        <!-- Botón Editar -->
-                                        <button onclick='abrirModalEditar(<?= json_encode($user, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' 
-                                                class="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition border border-transparent hover:border-blue-200" 
-                                                title="Editar Usuario">
-                                            <i class="fa-solid fa-pen-to-square"></i>
-                                        </button>
+                                        <?php 
+                                            $isMainAdmin = ($user['id'] == 1 || strtolower(trim($user['nombre'])) === 'administrador it' || $user['email'] === 'admin@mastertec.com.ni' || $user['email'] === 'test@empresa.com.ni');
+                                        ?>
+                                        <?php if ($isMainAdmin): ?>
+                                            <span class="px-2.5 py-1 text-slate-400 cursor-not-allowed flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider bg-slate-100 rounded-lg border border-slate-200" title="Usuario del sistema protegido (No se puede editar ni desactivar)">
+                                                <i class="fa-solid fa-lock text-[9px]"></i> Protegido
+                                            </span>
+                                        <?php else: ?>
+                                            <!-- Botón Editar -->
+                                            <button onclick='abrirModalEditar(<?= json_encode($user, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' 
+                                                    class="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition border border-transparent hover:border-blue-200" 
+                                                    title="Editar Usuario">
+                                                <i class="fa-solid fa-pen-to-square"></i>
+                                            </button>
 
-                                        <!-- Botón Cambiar Estado -->
-                                        <?php if($user['id'] != $_SESSION['user_id']): ?>
-                                            <form action="estado.php" method="POST" class="inline" onsubmit="return confirm('¿Estás seguro de cambiar el estado de este usuario?');">
-                                                <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
-                                                <input type="hidden" name="nuevo_estado" value="<?= $user['estado'] === 'Activo' ? 'Inactivo' : 'Activo' ?>">
-                                                <button type="submit" 
-                                                        class="p-2 rounded-lg transition border border-transparent <?= $user['estado'] === 'Activo' ? 'text-rose-500 hover:bg-rose-50 hover:border-rose-200' : 'text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200' ?>"
-                                                        title="<?= $user['estado'] === 'Activo' ? 'Desactivar Usuario' : 'Activar Usuario' ?>">
-                                                    <i class="fa-solid <?= $user['estado'] === 'Activo' ? 'fa-ban' : 'fa-check' ?>"></i>
-                                                </button>
-                                            </form>
+                                            <!-- Botón Cambiar Estado -->
+                                            <?php if($user['id'] != $_SESSION['user_id']): ?>
+                                                <form autocomplete="off" action="estado.php" method="POST" class="inline" onsubmit="return confirm('¿Estás seguro de cambiar el estado de este usuario?');">
+                                                    <input type="hidden" name="user_id" value="<?= $user['id'] ?>">
+                                                    <input type="hidden" name="nuevo_estado" value="<?= $user['estado'] === 'Activo' ? 'Inactivo' : 'Activo' ?>">
+                                                    <button type="submit" 
+                                                            class="p-2 rounded-lg transition border border-transparent <?= $user['estado'] === 'Activo' ? 'text-rose-500 hover:bg-rose-50 hover:border-rose-200' : 'text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200' ?>"
+                                                            title="<?= $user['estado'] === 'Activo' ? 'Desactivar Usuario' : 'Activar Usuario' ?>">
+                                                        <i class="fa-solid <?= $user['estado'] === 'Activo' ? 'fa-ban' : 'fa-check' ?>"></i>
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
                                         <?php endif; ?>
                                     </div>
                                 </td>
@@ -170,7 +179,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 </button>
             </div>
             
-            <form action="guardar.php" method="POST" class="space-y-4">
+            <form autocomplete="off" action="guardar.php" method="POST" class="space-y-4">
                 <div>
                     <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-1.5">Nombre Completo</label>
                     <input type="text" name="nombre" required placeholder="Ej. Ana Martínez"
@@ -192,7 +201,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-1.5">Rol de Sistema</label>
-                        <select name="rol" required
+                        <select autocomplete="off" name="rol" required
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-sm text-slate-800 focus:outline-none focus:border-blue-500">
                             <option value="Administrador">Administrador</option>
                             <option value="Soporte">Soporte IT</option>
@@ -201,7 +210,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     </div>
                     <div>
                         <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-1.5">Estado Inicial</label>
-                        <select name="estado" required
+                        <select autocomplete="off" name="estado" required
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-sm text-slate-800 focus:outline-none focus:border-blue-500">
                             <option value="Activo">Activo</option>
                             <option value="Inactivo">Inactivo</option>
@@ -236,7 +245,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 </button>
             </div>
             
-            <form action="guardar.php" method="POST" class="space-y-4">
+            <form autocomplete="off" action="guardar.php" method="POST" class="space-y-4">
                 <input type="hidden" name="user_id" id="edit_user_id">
 
                 <div>
@@ -261,7 +270,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-1.5">Rol de Sistema</label>
-                        <select name="rol" id="edit_rol" required
+                        <select autocomplete="off" name="rol" id="edit_rol" required
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-sm text-slate-800 focus:outline-none focus:border-blue-500">
                             <option value="Administrador">Administrador</option>
                             <option value="Soporte">Soporte IT</option>
@@ -270,7 +279,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     </div>
                     <div>
                         <label class="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-1.5">Estado</label>
-                        <select name="estado" id="edit_estado" required
+                        <select autocomplete="off" name="estado" id="edit_estado" required
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-sm text-slate-800 focus:outline-none focus:border-blue-500">
                             <option value="Activo">Activo</option>
                             <option value="Inactivo">Inactivo</option>

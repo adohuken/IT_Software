@@ -166,7 +166,7 @@ $tareas = $stmt->fetchAll();
             </h3>
             <button onclick="cerrarModal('modal-nueva-tarea')" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <form action="guardar.php?action=add" method="POST" class="p-6 space-y-4">
+        <form autocomplete="off" action="guardar.php?action=add" method="POST" class="p-6 space-y-4">
             <div>
                 <label for="t_title" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Título de la Tarea</label>
                 <input type="text" name="titulo" id="t_title" required placeholder="Ej: Mantenimiento Preventivo de Firewall Kerio" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
@@ -178,7 +178,7 @@ $tareas = $stmt->fetchAll();
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label for="t_asig" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Asignar A</label>
-                    <select name="asignado_a" id="t_asig" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                    <select autocomplete="off" name="asignado_a" id="t_asig" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                         <option value="" disabled selected>Selecciona Técnico IT...</option>
                         <?php foreach ($equipo_it as $it): ?>
                             <option value="<?= $it['id'] ?>"><?= htmlspecialchars($it['nombre'] . ' (' . $it['rol'] . ')') ?></option>
@@ -267,7 +267,15 @@ $tareas = $stmt->fetchAll();
 
 <script>
     function abrirModal(id) {
-        document.getElementById(id).classList.remove('hidden');
+        const modal = document.getElementById(id);
+        const isEditOrDetail = id.includes('edit') || id.includes('det') || id.includes('ficha');
+        if (!isEditOrDetail) {
+            modal.querySelectorAll('form').forEach(function(f) { f.reset(); });
+            modal.querySelectorAll('select').forEach(function(s) {
+                if (!s.closest('form')) s.selectedIndex = 0;
+            });
+        }
+        modal.classList.remove('hidden');
     }
     
     function cerrarModal(id) {

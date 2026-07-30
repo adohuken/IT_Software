@@ -78,6 +78,11 @@ if ($ver_historial_id > 0) {
         ");
         $stmt_hist->execute([$ver_historial_id]);
         $historial = $stmt_hist->fetchAll();
+        
+        // Obtener el proveedor origen para mostrar al final del historial
+        $stmt_origen = $db->prepare("SELECT proveedor_origen, registrado_por FROM equipos WHERE id = ?");
+        $stmt_origen->execute([$ver_historial_id]);
+        $origen = $stmt_origen->fetch();
     }
 }
 ?>
@@ -98,10 +103,19 @@ if ($ver_historial_id > 0) {
 
     <!-- Barra de Filtros -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200">
-        <form method="GET" class="flex flex-col md:flex-row md:items-end gap-4">
+        <form autocomplete="off" method="GET" class="flex flex-col lg:flex-row lg:items-end gap-4">
+            <div class="flex-1">
+                <label for="buscar_equipo" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Búsqueda Rápida</label>
+                <div class="relative">
+                    <input type="text" id="buscar_equipo" onkeyup="filtrarTablaEquipos()" placeholder="Buscar por tipo, marca, modelo, S/N, IP, colaborador..." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 placeholder-slate-400 transition-all duration-300">
+                    <span class="absolute left-3.5 top-3 text-slate-450">
+                        <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                    </span>
+                </div>
+            </div>
             <div class="flex-1">
                 <label for="f_suc" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Filtrar por Sucursal</label>
-                <select name="sucursal_id" id="f_suc" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer">
+                <select autocomplete="off" name="sucursal_id" id="f_suc" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer">
                     <option value="">-- Todas las Sucursales --</option>
                     <?php foreach ($sucursales as $s): ?>
                         <option value="<?= $s['id'] ?>" <?= ($filtro_sucursal == $s['id']) ? 'selected' : '' ?>><?= htmlspecialchars($s['nombre']) ?></option>
@@ -110,7 +124,7 @@ if ($ver_historial_id > 0) {
             </div>
             <div class="flex-1">
                 <label for="f_dep" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Filtrar por Departamento</label>
-                <select name="departamento" id="f_dep" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer">
+                <select autocomplete="off" name="departamento" id="f_dep" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer">
                     <option value="">-- Todos los Departamentos --</option>
                     <?php foreach ($departamentos as $d): ?>
                         <option value="<?= htmlspecialchars($d['departamento']) ?>" <?= ($filtro_depto === $d['departamento']) ? 'selected' : '' ?>><?= htmlspecialchars($d['departamento']) ?></option>
@@ -132,47 +146,101 @@ if ($ver_historial_id > 0) {
 
     <!-- Historial de Asignaciones (Visible si se solicita) -->
     <?php if ($ver_historial_id > 0 && $equipo_detalle): ?>
-        <div class="bg-white border border-cyan-500/20 rounded-2xl p-6 shadow-2xl space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-200 pb-3">
-                <div>
-                    <span class="text-[10px] text-cyan-400 uppercase font-bold tracking-wider">Historial de Asignaciones</span>
-                    <h3 class="text-sm font-bold text-slate-800"><?= htmlspecialchars("{$equipo_detalle['tipo']} {$equipo_detalle['marca']} {$equipo_detalle['modelo']} (S/N: {$equipo_detalle['service_tag_sn']})") ?></h3>
-                </div>
-                <a href="index.php" class="text-xs text-slate-400 hover:text-slate-800 transition">Cerrar Historial</a>
-            </div>
-            
-            <div class="relative pl-6 border-l border-slate-200 space-y-6 ml-2 pt-2">
-                <?php if (empty($historial)): ?>
-                    <p class="text-xs text-slate-400 pl-2">Este equipo nunca ha sido asignado a ningún empleado.</p>
-                <?php else: ?>
-                    <?php foreach ($historial as $h): 
-                        $activo = is_null($h['fecha_devolucion']);
-                    ?>
-                        <div class="relative">
-                            <!-- Nodo indicador de la línea de tiempo -->
-                            <span class="absolute -left-[31px] top-1.5 h-2.5 w-2.5 rounded-full <?= $activo ? 'bg-emerald-400 border-2 border-emerald-400 animate-pulse' : 'bg-gray-600 border border-slate-200' ?>"></span>
-                            
-                            <div class="text-xs">
-                                <div class="flex items-center justify-between gap-4 mb-1">
-                                    <span class="font-bold text-slate-800"><?= htmlspecialchars($h['empleado_nombre']) ?></span>
-                                    <span class="text-[10px] text-slate-400 font-mono"><?= date('d/m/Y', strtotime($h['fecha_entrega'])) ?></span>
-                                </div>
-                                <p class="text-slate-500"><?= htmlspecialchars($h['cargo'] . ' &bull; ' . $h['departamento']) ?></p>
-                                <p class="text-slate-400 mt-1 italic">Entrega: "<?= htmlspecialchars($h['condicion_entrega'] ?? 'Sin condiciones especificadas') ?>"</p>
-                                
-                                <?php if (!$activo): ?>
-                                    <div class="mt-2 text-[11px] bg-slate-50 p-2 rounded border border-slate-200 text-slate-400">
-                                        <div class="flex justify-between font-medium">
-                                            <span>Devuelto el: <?= date('d/m/Y', strtotime($h['fecha_devolucion'])) ?></span>
-                                        </div>
-                                    </div>
-                                <?php else: ?>
-                                    <span class="mt-1.5 inline-block px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase">Activo</span>
-                                <?php endif; ?>
-                            </div>
+        <div id="modal-historial-asignaciones" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+            <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-fade-in relative max-h-[85vh] flex flex-col">
+                
+                <!-- Cabecera del Modal -->
+                <div class="p-6 pb-2 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="h-12 w-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-600 flex items-center justify-center text-xl shrink-0">
+                            <i class="fa-regular fa-clock"></i>
                         </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+                        <div>
+                            <span class="text-[10px] text-cyan-500 uppercase font-bold tracking-wider">Historial de Asignaciones</span>
+                            <h3 class="font-bold text-slate-800 text-sm md:text-base leading-tight mt-0.5"><?= htmlspecialchars("{$equipo_detalle['tipo']} {$equipo_detalle['marca']} {$equipo_detalle['modelo']}") ?></h3>
+                            <p class="text-xs text-slate-400 font-mono mt-0.5">S/N: <?= htmlspecialchars($equipo_detalle['service_tag_sn']) ?></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cuerpo del Modal (Scrollable) -->
+                <div class="p-6 space-y-6 overflow-y-auto flex-1 max-h-[50vh]">
+                    <div class="relative pl-6 border-l border-slate-200 space-y-6 ml-2 pt-2">
+                        <?php if (empty($historial)): ?>
+                            <p class="text-xs text-slate-400 pl-2">Este equipo nunca ha sido asignado a ningún empleado.</p>
+                        <?php else: ?>
+                            <?php foreach ($historial as $h): 
+                                $activo = is_null($h['fecha_devolucion']);
+                            ?>
+                                <div class="relative">
+                                    <!-- Nodo indicador de la línea de tiempo -->
+                                    <span class="absolute -left-[31px] top-1.5 h-2.5 w-2.5 rounded-full <?= $activo ? 'bg-emerald-400 border-2 border-emerald-400 animate-pulse' : 'bg-gray-600 border border-slate-200' ?>"></span>
+                                    
+                                    <div class="text-xs">
+                                        <div class="flex items-center justify-between gap-4 mb-1">
+                                            <span class="font-bold text-slate-800"><?= htmlspecialchars($h['empleado_nombre']) ?></span>
+                                            <span class="text-[10px] text-slate-400 font-mono"><?= date('d/m/Y', strtotime($h['fecha_entrega'])) ?></span>
+                                        </div>
+                                        <p class="text-slate-500"><?= htmlspecialchars($h['cargo'] ?? '') ?> &bull; <?= htmlspecialchars($h['departamento'] ?? '') ?></p>
+                                        <?php if (!empty($h['entregado_a'])): ?>
+                                            <p class="text-[11px] text-slate-600 mt-1"><i class="fa-solid fa-handshake text-slate-400 mr-1"></i>Físicamente entregado a: <span class="font-semibold"><?= htmlspecialchars($h['entregado_a']) ?></span></p>
+                                        <?php endif; ?>
+                                        <p class="text-slate-400 mt-1 italic">Entrega: "<?= htmlspecialchars($h['condicion_entrega'] ?? 'Sin condiciones especificadas') ?>"</p>
+                                        <?php if (!empty($h['asignado_por'])): ?>
+                                            <p class="text-[10px] text-slate-400 mt-0.5"><i class="fa-solid fa-user-pen mr-1"></i>Asignado por: <span class="font-medium text-slate-600"><?= htmlspecialchars($h['asignado_por']) ?></span></p>
+                                        <?php endif; ?>
+                                        
+                                        <?php if (!$activo): ?>
+                                            <div class="mt-2 text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-slate-400 space-y-1">
+                                                <div class="flex justify-between font-medium">
+                                                    <span>Devuelto el: <?= date('d/m/Y', strtotime($h['fecha_devolucion'])) ?></span>
+                                                    <div class="text-right">
+                                                        <?php if (!empty($h['devuelto_por'])): ?>
+                                                            <div class="mb-0.5">Devuelto por: <span class="font-semibold text-slate-600"><?= htmlspecialchars($h['devuelto_por']) ?></span></div>
+                                                        <?php endif; ?>
+                                                        <?php if (!empty($h['recibido_por'])): ?>
+                                                            <div>Recibido por (IT): <span class="font-semibold text-slate-600"><?= htmlspecialchars($h['recibido_por']) ?></span></div>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                </div>
+                                                <?php if (!empty($h['condicion_devolucion'])): ?>
+                                                    <p class="italic text-slate-500 font-medium">Recepción: "<?= htmlspecialchars($h['condicion_devolucion']) ?>"</p>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="mt-1.5 inline-block px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase">Activo</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                            
+                            <!-- Nodo Inicial: Origen del Equipo -->
+                            <div class="relative">
+                                <span class="absolute -left-[31px] top-1.5 h-2.5 w-2.5 rounded-full bg-slate-400 border border-slate-200"></span>
+                                <div class="text-xs">
+                                    <div class="flex items-center justify-between gap-4 mb-1">
+                                        <span class="font-bold text-slate-600">Registro Inicial en Inventario</span>
+                                    </div>
+                                    <?php if (!empty($origen['proveedor_origen'])): ?>
+                                        <p class="text-slate-500 mt-1 italic">Entregado / Provisto por: "<?= htmlspecialchars($origen['proveedor_origen']) ?>"</p>
+                                    <?php endif; ?>
+                                    <?php if (!empty($origen['registrado_por'])): ?>
+                                        <p class="text-[10px] text-slate-400 mt-0.5"><i class="fa-solid fa-user-check mr-1"></i>Registrado por (IT): <span class="font-medium text-slate-500"><?= htmlspecialchars($origen['registrado_por']) ?></span></p>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Pie del Modal -->
+                <div class="p-6 pt-0 flex items-center justify-end">
+                    <a href="index.php" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5">
+                        <i class="fa-solid fa-check"></i> Cerrar Historial
+                    </a>
+                </div>
+
             </div>
         </div>
     <?php endif; ?>
@@ -183,6 +251,7 @@ if ($ver_historial_id > 0) {
             <table class="w-full text-left modern-table text-sm">
                 <thead>
                     <tr>
+                        <th class="py-3 px-3 text-center w-12">#</th>
                         <th class="py-3 px-4">Código / Tipo</th>
                         <th class="py-3 px-4">Descripción del Activo</th>
                         <th class="py-3 px-4">Identificación</th>
@@ -195,19 +264,25 @@ if ($ver_historial_id > 0) {
                 <tbody>
                     <?php if (empty($equipos)): ?>
                         <tr>
-                            <td colspan="7" class="text-center py-10 text-slate-400">
+                            <td colspan="8" class="text-center py-10 text-slate-400">
                                 No se encontraron equipos en inventario bajo estos filtros.
                             </td>
                         </tr>
                     <?php else: ?>
-                        <?php foreach ($equipos as $eq): 
+                        <?php 
+                        $num_inv = 1;
+                        foreach ($equipos as $eq): 
                             // Badges del hardware
-                            if ($eq['estado'] === 'Disponible') $badge = 'badge-success';
-                            elseif ($eq['estado'] === 'Asignado') $badge = 'badge-progress';
-                            elseif ($eq['estado'] === 'Mantenimiento') $badge = 'badge-pending';
-                            else $badge = 'badge-danger';
+                            if ($eq['estado'] === 'Disponible') $badge = 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20';
+                            elseif ($eq['estado'] === 'Asignado') $badge = 'bg-blue-500/10 text-blue-500 border border-blue-500/20';
+                            elseif ($eq['estado'] === 'Mantenimiento') $badge = 'bg-amber-500/10 text-amber-500 border border-amber-500/20';
+                            else $badge = 'bg-rose-500/10 text-rose-500 border border-rose-500/20';
                         ?>
                             <tr class="hover:bg-cyan-50/60 cursor-pointer transition border-b border-slate-100 group" onclick='verDetalleEquipo(<?= json_encode($eq, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
+                                <!-- # Numeración -->
+                                <td class="py-4 px-3 text-center text-xs font-mono font-bold text-slate-400 group-hover:text-cyan-600">
+                                    <?= $num_inv++ ?>
+                                </td>
                                 <td class="py-4 px-4">
                                     <div class="font-bold text-slate-800 group-hover:text-cyan-700 transition flex items-center gap-1.5">
                                         <i class="fa-solid fa-laptop text-xs text-slate-400 group-hover:text-cyan-600"></i>
@@ -225,7 +300,13 @@ if ($ver_historial_id > 0) {
                                     <?= htmlspecialchars($eq['service_tag_sn']) ?>
                                 </td>
                                 <td class="py-4 px-4 text-xs text-slate-600">
-                                    <div><?= htmlspecialchars($eq['ip_direccion'] ?? 'DHCP / Dinámica') ?></div>
+                                    <?php 
+                                    $show_dhcp = !in_array($eq['tipo'], ['Laptop', 'Desktop', 'Celular']);
+                                    $ip_text = $eq['ip_direccion'] ?? ($show_dhcp ? 'DHCP / Dinámica' : '');
+                                    if ($ip_text !== ''): 
+                                    ?>
+                                        <div><?= htmlspecialchars($ip_text) ?></div>
+                                    <?php endif; ?>
                                     <span class="text-[10px] text-slate-400"><?= htmlspecialchars($eq['sucursal_nombre']) ?></span>
                                 </td>
                                 <td class="py-4 px-4 text-xs">
@@ -243,11 +324,6 @@ if ($ver_historial_id > 0) {
                                 </td>
                                 <td class="py-4 px-4">
                                     <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
-                                        <!-- Ver Detalle Completo -->
-                                        <button onclick='event.stopPropagation(); verDetalleEquipo(<?= json_encode($eq, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="h-8 w-8 rounded-lg hover:bg-cyan-50 flex items-center justify-center text-cyan-600 transition" title="Ver Detalle Completo">
-                                            <i class="fa-solid fa-eye text-xs"></i>
-                                        </button>
-
                                         <!-- Ver Historial -->
                                         <a href="?history_id=<?= $eq['id'] ?><?= !empty($filtro_sucursal)?'&sucursal_id='.$filtro_sucursal:'' ?><?= !empty($filtro_depto)?'&departamento='.$filtro_depto:'' ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800 transition" title="Ver Historial Asignaciones">
                                             <i class="fa-regular fa-clock text-xs"></i>
@@ -259,6 +335,10 @@ if ($ver_historial_id > 0) {
                                                 <i class="fa-solid fa-user-plus text-xs"></i>
                                             </button>
                                         <?php elseif ($eq['estado'] === 'Asignado'): ?>
+                                            <!-- Imprimir Constancia -->
+                                            <a href="imprimir_asignacion.php?id=<?= $eq['asignacion_id'] ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-indigo-50 flex items-center justify-center text-slate-500 hover:text-indigo-600 transition" title="Imprimir Constancia">
+                                                <i class="fa-solid fa-print text-xs"></i>
+                                            </a>
                                             <!-- Retornar / Devolver Hardware -->
                                             <button onclick="event.stopPropagation(); abrirDevolver('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>', '<?= $eq['asignacion_id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-amber-50 flex items-center justify-center text-slate-500 hover:text-amber-600 transition" title="Registrar Devolución">
                                                 <i class="fa-solid fa-arrow-rotate-left text-xs"></i>
@@ -285,7 +365,7 @@ if ($ver_historial_id > 0) {
      ======================================================== -->
 
 <!-- 1. Modal Nuevo Equipo -->
-<div id="modal-nuevo-equipo" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+<div id="modal-nuevo-equipo" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
     <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-fade-in">
         <div class="p-6 border-b border-slate-200 flex items-center justify-between">
             <h3 class="font-bold text-slate-800 flex items-center gap-2">
@@ -293,23 +373,27 @@ if ($ver_historial_id > 0) {
             </h3>
             <button onclick="cerrarModal('modal-nuevo-equipo')" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <form action="guardar.php?action=add_eq" method="POST" class="p-6 space-y-4">
+        <form autocomplete="off" action="guardar.php?action=add_eq" method="POST" class="p-6 space-y-4">
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label for="eq_tipo" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Tipo de Activo</label>
-                    <select name="tipo" id="eq_tipo" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                    <select autocomplete="off" name="tipo" id="eq_tipo" required onchange="toggleOtroTipo(this, 'eq_tipo_otro_container')" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                         <option value="Laptop" selected>Laptop</option>
                         <option value="Desktop">Desktop</option>
+                        <option value="Impresora">Impresora</option>
+                        <option value="Celular">Celular</option>
                         <option value="Servidor">Servidor</option>
-                        <option value="Maquina Virtual">Máquina Virtual</option>
                         <option value="Switch">Switch</option>
-                        <option value="Firewall">Firewall</option>
-                        <option value="Access Point">Access Point</option>
+                        <option value="AP">AP</option>
+                        <option value="__otro__">+ Agregar otro tipo...</option>
                     </select>
+                    <div id="eq_tipo_otro_container" class="hidden mt-2">
+                        <input type="text" name="tipo_otro" id="eq_tipo_otro" placeholder="Especifica el tipo de equipo..." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:border-cyan-400">
+                    </div>
                 </div>
                 <div>
                     <label for="eq_suc" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Ubicación / Sucursal</label>
-                    <select name="sucursal_id" id="eq_suc" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                    <select autocomplete="off" name="sucursal_id" id="eq_suc" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                         <?php foreach ($sucursales as $s): ?>
                             <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nombre']) ?></option>
                         <?php endforeach; ?>
@@ -338,7 +422,7 @@ if ($ver_historial_id > 0) {
             </div>
             <div>
                 <label for="eq_est" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Estado Inicial</label>
-                <select name="estado" id="eq_est" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                <select autocomplete="off" name="estado" id="eq_est" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                     <option value="Disponible" selected>Disponible</option>
                     <option value="Mantenimiento">Mantenimiento</option>
                 </select>
@@ -347,29 +431,14 @@ if ($ver_historial_id > 0) {
                 <label for="eq_notes" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Notas descriptivas</label>
                 <textarea name="notas" id="eq_notes" rows="2" placeholder="Detalles de hardware, licencias locales de OS, etc..." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400"></textarea>
             </div>
-            
-            <!-- Opción para Asignar de inmediato durante la creación -->
+            <!-- Origen del equipo al registrar -->
             <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-4">
-                <div class="flex items-center justify-between">
-                    <label for="eq_asignar_inmediato" class="text-xs font-semibold text-slate-600 uppercase tracking-wider">¿Asignar de inmediato a un empleado?</label>
-                    <input type="checkbox" name="asignar_inmediato" id="eq_asignar_inmediato" value="1" onchange="toggleAsignacionRegistro()" class="h-4 w-4 rounded border-gray-300 text-cyan-500 focus:ring-cyan-400 bg-slate-100">
-                </div>
-                <div id="div-asignacion-registro" class="hidden space-y-4">
-                    <div>
-                        <label for="eq_reg_empleado" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Empleado Asignado</label>
-                        <select name="empleado_id" id="eq_reg_empleado" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
-                            <option value="" disabled selected>Selecciona un empleado...</option>
-                            <?php foreach ($empleados as $emp): ?>
-                                <option value="<?= $emp['id'] ?>"><?= htmlspecialchars($emp['nombre'] . ' (' . $emp['cargo'] . ')') ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="eq_reg_condicion" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Condición de Entrega</label>
-                        <input type="text" name="condicion_entrega" id="eq_reg_condicion" placeholder="Ej: Nuevo en caja, cargador, mouse." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
-                    </div>
+                <div>
+                    <label for="eq_proveedor_origen" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Entregado a IT / Provisto por (Opcional)</label>
+                    <input type="text" name="proveedor_origen" id="eq_proveedor_origen" placeholder="Nombre de quien entregó o proveedor del equipo" class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
             </div>
+            
             <div class="pt-4 flex gap-3">
                 <button type="button" onclick="cerrarModal('modal-nuevo-equipo')" class="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-800 font-semibold text-sm transition border border-slate-200">Cancelar</button>
                 <button type="submit" class="flex-1 py-3 rounded-xl grad-cyan-blue text-slate-800 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/20 hover:opacity-90 transition">Guardar Activo</button>
@@ -379,7 +448,7 @@ if ($ver_historial_id > 0) {
 </div>
 
 <!-- 2. Modal Asignar Equipo -->
-<div id="modal-asignar" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+<div id="modal-asignar" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
     <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-fade-in">
         <div class="p-6 border-b border-slate-200 flex items-center justify-between">
             <h3 class="font-bold text-slate-800 flex items-center gap-2">
@@ -387,15 +456,15 @@ if ($ver_historial_id > 0) {
             </h3>
             <button onclick="cerrarModal('modal-asignar')" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <form action="guardar.php?action=assign" method="POST" class="p-6 space-y-4">
+        <form autocomplete="off" action="guardar.php?action=assign" method="POST" class="p-6 space-y-4">
             <input type="hidden" name="equipo_id" id="asig_eq_id">
             <div>
                 <label class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Equipo Seleccionado</label>
-                <div id="asig_eq_label" class="text-sm font-semibold text-slate-800 bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 mt-1 font-mono"></div>
+                <div id="asig_eq_label" class="text-sm font-semibold text-slate-500 bg-slate-200 border border-slate-200 rounded-xl py-3 px-4 mt-1 font-mono cursor-not-allowed"></div>
             </div>
             <div>
                 <label for="asig_emp" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Empleado Asignado</label>
-                <select name="empleado_id" id="asig_emp" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                <select autocomplete="off" name="empleado_id" id="asig_emp" required class="searchable-select w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400" data-placeholder="Selecciona el empleado que recibe el hardware...">
                     <option value="" disabled selected>Selecciona el empleado que recibe el hardware...</option>
                     <?php foreach ($empleados as $emp): ?>
                         <option value="<?= $emp['id'] ?>"><?= htmlspecialchars($emp['nombre'] . ' (' . $emp['cargo'] . ' - ' . $emp['departamento'] . ')') ?></option>
@@ -404,11 +473,15 @@ if ($ver_historial_id > 0) {
             </div>
             <div>
                 <label for="asig_date" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Fecha de Entrega</label>
-                <input type="date" name="fecha_entrega" id="asig_date" value="<?= date('Y-m-d') ?>" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                <input type="date" name="fecha_entrega" id="asig_date" value="<?= date('Y-m-d') ?>" required readonly class="w-full bg-slate-200 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-500 focus:outline-none cursor-not-allowed">
             </div>
             <div>
                 <label for="asig_cond" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Condición de Entrega</label>
                 <input type="text" name="condicion_entrega" id="asig_cond" required placeholder="Ej: Cargador, mouse, estuche. Sin golpes, pantalla limpia." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+            </div>
+            <div>
+                <label for="asig_entregado_a" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Se entregará físicamente a</label>
+                <input type="text" name="entregado_a" id="asig_entregado_a" required placeholder="Nombre de la persona que lo recibe físicamente" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
             </div>
             <div class="pt-4 flex gap-3">
                 <button type="button" onclick="cerrarModal('modal-asignar')" class="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-800 font-semibold text-sm transition border border-slate-200">Cancelar</button>
@@ -419,7 +492,7 @@ if ($ver_historial_id > 0) {
 </div>
 
 <!-- 3. Modal Devolver Equipo -->
-<div id="modal-devolver" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+<div id="modal-devolver" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
     <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-fade-in">
         <div class="p-6 border-b border-slate-200 flex items-center justify-between">
             <h3 class="font-bold text-slate-800 flex items-center gap-2">
@@ -427,20 +500,24 @@ if ($ver_historial_id > 0) {
             </h3>
             <button onclick="cerrarModal('modal-devolver')" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <form action="guardar.php?action=return" method="POST" class="p-6 space-y-4">
+        <form autocomplete="off" action="guardar.php?action=return" method="POST" class="p-6 space-y-4">
             <input type="hidden" name="equipo_id" id="dev_eq_id">
             <input type="hidden" name="asignacion_id" id="dev_asig_id">
             <div>
                 <label class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Equipo en Proceso de Devolución</label>
-                <div id="dev_eq_label" class="text-sm font-semibold text-slate-800 bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 mt-1 font-mono"></div>
+                <div id="dev_eq_label" class="text-sm font-semibold text-slate-500 bg-slate-200 border border-slate-200 rounded-xl py-3 px-4 mt-1 font-mono cursor-not-allowed"></div>
             </div>
             <div>
                 <label for="dev_date" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Fecha de Devolución</label>
-                <input type="date" name="fecha_devolucion" id="dev_date" value="<?= date('Y-m-d') ?>" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                <input type="date" name="fecha_devolucion" id="dev_date" value="<?= date('Y-m-d') ?>" required readonly class="w-full bg-slate-200 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-500 focus:outline-none cursor-not-allowed">
             </div>
             <div>
                 <label for="dev_cond" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Condición de Recepción (Historial hardware)</label>
                 <input type="text" name="condicion_devolucion" id="dev_cond" required placeholder="Ej: Devuelto con rayón en carcasa, cargador original operativo." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+            </div>
+            <div>
+                <label for="dev_devuelto_por" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Devuelto / Entregado por</label>
+                <input type="text" name="devuelto_por" id="dev_devuelto_por" placeholder="Nombre de la persona que lo entrega a IT" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
             </div>
             <div class="pt-4 flex gap-3">
                 <button type="button" onclick="cerrarModal('modal-devolver')" class="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-800 font-semibold text-sm transition border border-slate-200">Cancelar</button>
@@ -451,7 +528,7 @@ if ($ver_historial_id > 0) {
 </div>
 
 <!-- 4. Modal Detalle Completo del Activo IT -->
-<div id="modal-detalle-equipo" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
+<div id="modal-detalle-equipo" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
     <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-fade-in relative max-h-[90vh] flex flex-col">
         <!-- Cabecera de la Ficha -->
         <div class="p-6 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
@@ -564,8 +641,12 @@ if ($ver_historial_id > 0) {
                 <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                     <i class="fa-solid fa-file-lines text-slate-400"></i> Observaciones del Activo
                 </h4>
-                <div class="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs text-slate-700 italic" id="det_notas">
+                <div class="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs text-slate-700 italic mb-2" id="det_notas">
                     Sin observaciones guardadas.
+                </div>
+                <div class="text-[10px] text-slate-400 flex items-center gap-1">
+                    <i class="fa-solid fa-user-shield"></i>
+                    <span>Registrado por: <span id="det_registrado_por" class="font-semibold text-slate-600">--</span></span>
                 </div>
             </div>
         </div>
@@ -584,7 +665,15 @@ if ($ver_historial_id > 0) {
 
 <script>
     function abrirModal(id) {
-        document.getElementById(id).classList.remove('hidden');
+        const modal = document.getElementById(id);
+        const isEditOrDetail = id.includes('edit') || id.includes('det') || id.includes('ficha');
+        if (!isEditOrDetail) {
+            modal.querySelectorAll('form').forEach(function(f) { f.reset(); });
+            modal.querySelectorAll('select').forEach(function(s) {
+                if (!s.closest('form')) s.selectedIndex = 0;
+            });
+        }
+        modal.classList.remove('hidden');
     }
     
     function cerrarModal(id) {
@@ -598,9 +687,11 @@ if ($ver_historial_id > 0) {
         document.getElementById('det_tipo').innerText = eq.tipo || '--';
         document.getElementById('det_marca_modelo').innerText = (eq.marca || '') + ' ' + (eq.modelo || '');
         document.getElementById('det_sn').innerText = eq.service_tag_sn || 'N/A';
-        document.getElementById('det_ip').innerText = eq.ip_direccion || 'DHCP / Dinámica';
+        const isClientDevice = ['Laptop', 'Desktop', 'Celular'].includes(eq.tipo);
+        document.getElementById('det_ip').innerText = eq.ip_direccion || (isClientDevice ? 'No Aplica (DHCP)' : 'DHCP / Dinámica');
         document.getElementById('det_sucursal').innerText = eq.sucursal_nombre || '--';
         document.getElementById('det_notas').innerText = eq.notas || 'Sin observaciones guardadas.';
+        document.getElementById('det_registrado_por').innerText = eq.registrado_por || 'Sistema / Pre-existente';
 
         // Icono según el tipo de hardware
         const iconEl = document.getElementById('det_icon');
@@ -709,6 +800,61 @@ if ($ver_historial_id > 0) {
             empSel.value = '';
             condInput.value = '';
         }
+    }
+
+    function toggleOtroTipo(select, containerId) {
+        const container = document.getElementById(containerId);
+        if (container) {
+            if (select.value === '__otro__') {
+                container.classList.remove('hidden');
+                const input = container.querySelector('input');
+                if (input) {
+                    input.required = true;
+                    input.focus();
+                }
+            } else {
+                container.classList.add('hidden');
+                const input = container.querySelector('input');
+                if (input) {
+                    input.required = false;
+                }
+            }
+        }
+    }
+
+    function filtrarTablaEquipos() {
+        const input = document.getElementById('buscar_equipo');
+        const filter = input.value.toLowerCase().trim();
+        const trs = document.querySelectorAll('tbody tr');
+
+        trs.forEach(tr => {
+            if (tr.querySelector('td[colspan]')) return; // Omitir fila vacía
+
+            // Obtener todo el texto de la fila (incluyendo celdas)
+            const text = tr.innerText.toLowerCase();
+            if (text.includes(filter)) {
+                tr.style.display = '';
+            } else {
+                tr.style.display = 'none';
+            }
+        });
+    }
+
+    // Mover todos los modales al final del body para evitar problemas de stacking context (barra superior sin desenfoque)
+    function relocateModals() {
+        const modales = ['modal-nuevo-equipo', 'modal-asignar', 'modal-devolver', 'modal-detalle-equipo', 'modal-historial-asignaciones'];
+        modales.forEach(function(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                document.body.appendChild(el);
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', relocateModals);
+    } else {
+        relocateModals();
     }
 </script>
 

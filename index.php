@@ -13,11 +13,10 @@ $setup_needed = false;
 $error_msg = '';
 
 $kpis = [
-    'tareas_pendientes' => 0,
-    'm365_por_vencer'   => 0,
-    'equipos_asignados' => 0,
-    'equipos_totales'   => 0,
-    'equipos_mantenimiento' => 0
+    'total_credenciales' => 0,
+    'total_colaboradores' => 0,
+    'total_equipos' => 0,
+    'tareas_pendientes' => 0
 ];
 
 $tareas_urgentes = [];
@@ -34,18 +33,20 @@ try {
         $setup_needed = true;
     } else {
         // 1. Obtener KPIs
+        // Total Credenciales (Equipos + Web + M365)
+        $eq_cred = (int) $db->query("SELECT COUNT(*) FROM credenciales_equipos")->fetchColumn();
+        $web_cred = (int) $db->query("SELECT COUNT(*) FROM credenciales_web")->fetchColumn();
+        $m365_cred = (int) $db->query("SELECT COUNT(*) FROM cuentas_m365")->fetchColumn();
+        $kpis['total_credenciales'] = $eq_cred + $web_cred + $m365_cred;
+
+        // Total Colaboradores (Excluyendo marcadores Sucursal/Empresa)
+        $kpis['total_colaboradores'] = (int) $db->query("SELECT COUNT(*) FROM empleados WHERE cargo NOT IN ('Sucursal', 'Empresa')")->fetchColumn();
+
+        // Total Equipos
+        $kpis['total_equipos'] = (int) $db->query("SELECT COUNT(*) FROM equipos")->fetchColumn();
+
         // Tareas IT pendientes o en progreso
-        $kpis['tareas_pendientes'] = $db->query("SELECT COUNT(*) FROM tareas_it WHERE estado IN ('Pendiente', 'En Progreso', 'Vencida')")->fetchColumn();
-        
-        // M365 por vencer en los siguientes 15 días
-        $kpis['m365_por_vencer'] = $db->query("SELECT COUNT(*) FROM cuentas_m365 WHERE fecha_proximo_pago <= DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND estado = 'Activa'")->fetchColumn();
-        
-        // Equipos asignados
-        $kpis['equipos_asignados'] = $db->query("SELECT COUNT(*) FROM equipos WHERE estado = 'Asignado'")->fetchColumn();
-        
-        // Datos adicionales
-        $kpis['equipos_totales'] = $db->query("SELECT COUNT(*) FROM equipos")->fetchColumn();
-        $kpis['equipos_mantenimiento'] = $db->query("SELECT COUNT(*) FROM equipos WHERE estado = 'Mantenimiento'")->fetchColumn();
+        $kpis['tareas_pendientes'] = (int) $db->query("SELECT COUNT(*) FROM tareas_it WHERE estado IN ('Pendiente', 'En Progreso')")->fetchColumn();
 
         // 2. Obtener 5 Tareas Urgentes
         $stmt_tareas = $db->query("
@@ -181,207 +182,129 @@ require_once __DIR__ . '/includes/header.php';
 
     <!-- Top 4 KPIs -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <!-- KPI 1 -->
+        <!-- KPI 1: Credenciales -->
+        <div class="bg-white rounded-3xl p-6 shadow-sm flex items-center justify-between border border-slate-100">
+            <div>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Credenciales Totales</p>
+                <h3 class="text-3xl font-extrabold text-slate-800"><?= $kpis['total_credenciales'] ?></h3>
+                <p class="text-xs text-cyan-500 font-bold mt-2"><i class="fa-solid fa-key"></i> Claves & M365</p>
+            </div>
+            <div class="h-12 w-12 rounded-full bg-cyan-50 text-cyan-500 flex items-center justify-center text-xl">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+        </div>
+        <!-- KPI 2: Colaboradores -->
+        <div class="bg-white rounded-3xl p-6 shadow-sm flex items-center justify-between border border-slate-100">
+            <div>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Colaboradores</p>
+                <h3 class="text-3xl font-extrabold text-slate-800"><?= $kpis['total_colaboradores'] ?></h3>
+                <p class="text-xs text-emerald-500 font-bold mt-2"><i class="fa-solid fa-circle-check"></i> Personal Activo</p>
+            </div>
+            <div class="h-12 w-12 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center text-xl">
+                <i class="fa-solid fa-users"></i>
+            </div>
+        </div>
+        <!-- KPI 3: Equipos -->
+        <div class="bg-white rounded-3xl p-6 shadow-sm flex items-center justify-between border border-slate-100">
+            <div>
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Equipos Registrados</p>
+                <h3 class="text-3xl font-extrabold text-slate-800"><?= $kpis['total_equipos'] ?></h3>
+                <p class="text-xs text-indigo-500 font-bold mt-2"><i class="fa-solid fa-laptop"></i> Activos de Red/PC</p>
+            </div>
+            <div class="h-12 w-12 rounded-full bg-indigo-50 text-indigo-500 flex items-center justify-center text-xl">
+                <i class="fa-solid fa-server"></i>
+            </div>
+        </div>
+        <!-- KPI 4: Tareas IT -->
         <div class="bg-white rounded-3xl p-6 shadow-sm flex items-center justify-between border border-slate-100">
             <div>
                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Tareas Pendientes</p>
                 <h3 class="text-3xl font-extrabold text-slate-800"><?= $kpis['tareas_pendientes'] ?></h3>
-                <p class="text-xs text-rose-500 font-bold mt-2"><i class="fa-solid fa-triangle-exclamation"></i> Requieren acción</p>
+                <p class="text-xs text-amber-500 font-bold mt-2"><i class="fa-solid fa-triangle-exclamation"></i> En curso</p>
             </div>
-            <div class="h-12 w-12 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-xl">
+            <div class="h-12 w-12 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center text-xl">
                 <i class="fa-solid fa-list-check"></i>
             </div>
         </div>
-        <!-- KPI 2 -->
-        <div class="bg-white rounded-3xl p-6 shadow-sm flex items-center justify-between border border-slate-100">
-            <div>
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">M365 x Vencer</p>
-                <h3 class="text-3xl font-extrabold text-slate-800"><?= $kpis['m365_por_vencer'] ?></h3>
-                <p class="text-xs text-emerald-500 font-bold mt-2"><i class="fa-solid fa-caret-up"></i> Próximos 15 días</p>
-            </div>
-            <div class="h-12 w-12 rounded-full bg-indigo-50 text-indigo-500 flex items-center justify-center text-xl">
-                <i class="fa-brands fa-microsoft"></i>
-            </div>
-        </div>
-        <!-- KPI 3 -->
-        <div class="bg-white rounded-3xl p-6 shadow-sm flex items-center justify-between border border-slate-100">
-            <div>
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Equipos Asignados</p>
-                <h3 class="text-3xl font-extrabold text-slate-800"><?= $kpis['equipos_asignados'] ?></h3>
-                <p class="text-xs text-rose-500 font-bold mt-2"><i class="fa-solid fa-caret-down"></i> <?= $kpis['equipos_totales'] ?> Totales</p>
-            </div>
-            <div class="h-12 w-12 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center text-xl">
-                <i class="fa-solid fa-laptop"></i>
-            </div>
-        </div>
-        <!-- KPI 4 -->
-        <div class="bg-white rounded-3xl p-6 shadow-sm flex items-center justify-between border border-slate-100">
-            <div>
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">En Mantenimiento</p>
-                <h3 class="text-3xl font-extrabold text-slate-800"><?= $kpis['equipos_mantenimiento'] ?></h3>
-                <p class="text-xs text-emerald-500 font-bold mt-2"><i class="fa-solid fa-caret-up"></i> Equipos reparando</p>
-            </div>
-            <div class="h-12 w-12 rounded-full bg-amber-50 text-amber-500 flex items-center justify-center text-xl">
-                <i class="fa-solid fa-wrench"></i>
-            </div>
-        </div>
     </div>
 
-    <!-- Charts Row -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Bar Chart -->
-        <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 lg:col-span-2">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="font-bold text-slate-800 text-lg">Ventas mensuales <span class="text-xs font-normal text-slate-400 block sm:inline sm:ml-2">(Asignaciones)</span></h3>
-                <span class="text-xs text-blue-400 font-medium">últimos 6 meses</span>
-            </div>
-            <div class="relative h-64 w-full">
-                <canvas id="barChart"></canvas>
-            </div>
+    <!-- Grid de Accesos Directos (Tarjetas/Botones) -->
+    <div class="space-y-4">
+        <div>
+            <h2 class="text-lg font-bold text-slate-850 tracking-tight">Accesos Directos</h2>
+            <p class="text-xs text-slate-400">Navega rápidamente a las distintas secciones del sistema.</p>
         </div>
         
-        <!-- Donut Chart -->
-        <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-            <h3 class="font-bold text-slate-800 text-lg mb-4">Distribución</h3>
-            <div class="relative h-48 w-full flex items-center justify-center">
-                <canvas id="donutChart"></canvas>
-            </div>
-            <div class="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-2 text-[11px] font-medium text-slate-500" id="donutLegend">
-                <!-- Legend will be generated by JS -->
-            </div>
-        </div>
-    </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-6">
+            <!-- 1. Equipos -->
+            <a href="<?= BASE_URL ?>modules/equipos/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-violet-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
+                <div class="h-10 w-10 rounded-2xl bg-violet-500/5 border border-violet-500/10 text-violet-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
+                    <i class="fa-solid fa-server"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-violet-600 transition-colors">Equipos</h3>
+                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Inventario y asignación.</p>
+                </div>
+            </a>
 
-    <!-- Table Row -->
-    <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-        <div class="flex items-center justify-between mb-6">
-            <h3 class="font-bold text-slate-800 text-lg">Últimas transacciones <span class="text-xs font-normal text-slate-400">(Tareas recientes)</span></h3>
-            <a href="<?= BASE_URL ?>modules/tareas/index.php" class="text-sm font-medium text-blue-500 hover:text-blue-600">Ver todas</a>
-        </div>
-        
-        <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse min-w-[600px]">
-                <thead>
-                    <tr class="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                        <th class="pb-3 font-semibold px-2">Cliente (Asignado)</th>
-                        <th class="pb-3 font-semibold px-2">Producto (Tarea)</th>
-                        <th class="pb-3 font-semibold px-2">Fecha</th>
-                        <th class="pb-3 font-semibold px-2 text-right">Estado</th>
-                    </tr>
-                </thead>
-                <tbody class="text-sm text-slate-600">
-                    <?php if (empty($tareas_urgentes)): ?>
-                        <tr><td colspan="4" class="py-4 text-center text-slate-400">No hay tareas recientes</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($tareas_urgentes as $tarea): 
-                            $fecha_fin = new DateTime($tarea['fecha_limite']);
-                            $hoy = new DateTime(date('Y-m-d'));
-                            $dias_restantes = (int)$hoy->diff($fecha_fin)->format('%r%a');
+            <!-- 2. Credenciales -->
+            <a href="<?= BASE_URL ?>modules/credenciales/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-cyan-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
+                <div class="h-10 w-10 rounded-2xl bg-cyan-500/5 border border-cyan-500/10 text-cyan-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
+                    <i class="fa-solid fa-key"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-cyan-600 transition-colors">Credenciales</h3>
+                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Accesos cifrados y equipos.</p>
+                </div>
+            </a>
 
-                            if ($tarea['estado'] == 'Vencida' || $dias_restantes < 0) {
-                                $color = 'rose'; $estado = 'Cancelado';
-                            } elseif ($dias_restantes <= 2) {
-                                $color = 'amber'; $estado = 'Pendiente';
-                            } else {
-                                $color = 'emerald'; $estado = 'Completado';
-                            }
-                        ?>
-                        <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition">
-                            <td class="py-4 font-bold text-slate-800 px-2"><?= htmlspecialchars($tarea['asignado_nombre'] ?? 'Sin Asignar') ?></td>
-                            <td class="py-4 px-2"><?= htmlspecialchars($tarea['titulo']) ?></td>
-                            <td class="py-4 px-2"><?= date('d/m/Y', strtotime($tarea['fecha_limite'])) ?></td>
-                            <td class="py-4 px-2 text-right">
-                                <span class="px-3 py-1 rounded-full text-xs font-bold bg-<?= $color ?>-50 text-<?= $color ?>-500 border border-<?= $color ?>-100">
-                                    <?= $estado ?>
-                                </span>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+            <!-- 3. Colaboradores -->
+            <a href="<?= BASE_URL ?>modules/empleados/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-emerald-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
+                <div class="h-10 w-10 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
+                    <i class="fa-solid fa-users"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-emerald-600 transition-colors">Colaboradores</h3>
+                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Personal e historial de asignación.</p>
+                </div>
+            </a>
+
+            <!-- 4. Tareas IT -->
+            <a href="<?= BASE_URL ?>modules/tareas/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-blue-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
+                <div class="h-10 w-10 rounded-2xl bg-blue-500/5 border border-blue-500/10 text-blue-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
+                    <i class="fa-solid fa-list-check"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-blue-600 transition-colors">Tareas IT</h3>
+                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Pendientes, vencidas y progreso.</p>
+                </div>
+            </a>
+
+            <!-- 5. Usuarios IT -->
+            <a href="<?= BASE_URL ?>modules/usuarios/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-indigo-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
+                <div class="h-10 w-10 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 text-indigo-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
+                    <i class="fa-solid fa-user-shield"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-indigo-600 transition-colors">Usuarios IT</h3>
+                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Roles de soporte y administración.</p>
+                </div>
+            </a>
+
+            <!-- 6. Configuración -->
+            <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-amber-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
+                <div class="h-10 w-10 rounded-2xl bg-amber-500/5 border border-amber-500/10 text-amber-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
+                    <i class="fa-solid fa-sliders"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-amber-600 transition-colors">Configuración</h3>
+                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Carga masiva, BD y asistente IA.</p>
+                </div>
+            </a>
         </div>
     </div>
 
 </div>
-
-<!-- Chart.js Integration -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        
-        // Data injected from PHP
-        const barLabels = <?= json_encode($bar_labels ?? ['Sin datos']) ?>;
-        const barData   = <?= json_encode($bar_data ?? [0]) ?>;
-        const donutLabels = <?= json_encode($donut_labels ?? ['Sin equipos']) ?>;
-        const donutData   = <?= json_encode($donut_data ?? [1]) ?>;
-        const totalEquipos = <?= isset($total_equipos_chart) ? $total_equipos_chart : 1 ?>;
-
-        // Bar Chart (Asignaciones mensuales)
-        const barCtx = document.getElementById('barChart').getContext('2d');
-        new Chart(barCtx, {
-            type: 'bar',
-            data: {
-                labels: barLabels,
-                datasets: [{
-                    label: 'Registros',
-                    data: barData,
-                    backgroundColor: '#60a5fa',
-                    borderRadius: 4,
-                    barThickness: 35
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    y: { 
-                        beginAtZero: true, 
-                        grid: { borderDash: [5, 5], color: '#f1f5f9', drawBorder: false }, 
-                        border: { display: false },
-                        ticks: { color: '#94a3b8', font: { size: 10 }, stepSize: 1 }
-                    },
-                    x: { 
-                        grid: { display: false }, 
-                        border: { display: false },
-                        ticks: { color: '#94a3b8', font: { size: 11 } }
-                    }
-                }
-            }
-        });
-
-        // Donut Chart (Distribución)
-        const donutCtx = document.getElementById('donutChart').getContext('2d');
-        const donutColors = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6', '#38bdf8'];
-        new Chart(donutCtx, {
-            type: 'doughnut',
-            data: {
-                labels: donutLabels,
-                datasets: [{
-                    data: donutData,
-                    backgroundColor: donutColors.slice(0, donutLabels.length),
-                    borderWidth: 0,
-                    cutout: '70%'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } }
-            }
-        });
-
-        // Custom Legend for Donut
-        const legendContainer = document.getElementById('donutLegend');
-        donutLabels.forEach((label, i) => {
-            const val = donutData[i] || 0;
-            const pct = Math.round((val / (totalEquipos || 1)) * 100);
-            const color = donutColors[i % donutColors.length];
-            legendContainer.innerHTML += `<div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full" style="background-color: ${color}"></span> ${label} ${pct}%</div>`;
-        });
-    });
-</script>
 
 <style>
     @keyframes fade-in-up {

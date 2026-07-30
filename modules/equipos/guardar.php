@@ -22,6 +22,10 @@ try {
         // 1. Agregar Nuevo Equipo
         if ($action === 'add_eq') {
             $tipo = $_POST['tipo'];
+            if ($tipo === '__otro__') {
+                $tipo = trim($_POST['tipo_otro'] ?? 'Laptop');
+            }
+            if (empty($tipo)) $tipo = 'Laptop';
             $sucursal_id = (int)$_POST['sucursal_id'];
             $marca = trim($_POST['marca']);
             $modelo = trim($_POST['modelo']);
@@ -29,29 +33,16 @@ try {
             $ip_direccion = trim($_POST['ip_direccion'] ?? '') ?: null;
             $notas = trim($_POST['notas'] ?? '') ?: null;
             
-            $asignar_inmediato = isset($_POST['asignar_inmediato']) ? 1 : 0;
-            $estado = $asignar_inmediato ? 'Asignado' : $_POST['estado'];
+            $proveedor_origen = trim($_POST['proveedor_origen'] ?? '');
 
             $db->beginTransaction();
 
             $stmt = $db->prepare("
-                INSERT INTO equipos (sucursal_id, tipo, marca, modelo, service_tag_sn, ip_direccion, estado, notas) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO equipos (sucursal_id, tipo, marca, modelo, service_tag_sn, ip_direccion, estado, notas, registrado_por, proveedor_origen) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
-            $stmt->execute([$sucursal_id, $tipo, $marca, $modelo, $service_tag_sn, $ip_direccion, $estado, $notas]);
+            $stmt->execute([$sucursal_id, $tipo, $marca, $modelo, $service_tag_sn, $ip_direccion, $estado, $notas, $_SESSION['user_nombre'] ?? 'Sistema', $proveedor_origen]);
             $equipo_id = $db->lastInsertId();
-
-            if ($asignar_inmediato) {
-                $empleado_id = (int)$_POST['empleado_id'];
-                $condicion_entrega = trim($_POST['condicion_entrega']);
-                $fecha_entrega = date('Y-m-d'); // Managua Local Time
-
-                $stmt_asig = $db->prepare("
-                    INSERT INTO asignaciones (equipo_id, empleado_id, fecha_entrega, condicion_entrega) 
-                    VALUES (?, ?, ?, ?)
-                ");
-                $stmt_asig->execute([$equipo_id, $empleado_id, $fecha_entrega, $condicion_entrega]);
-            }
 
             $db->commit();
 
@@ -126,8 +117,8 @@ try {
 
             $stmtCheckTag = $db->prepare("SELECT id FROM equipos WHERE service_tag_sn = ?");
             $stmtInsertEq = $db->prepare("
-                INSERT INTO equipos (sucursal_id, tipo, marca, modelo, service_tag_sn, procesador, disco, ram, estado) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO equipos (sucursal_id, tipo, marca, modelo, service_tag_sn, procesador, disco, ram, estado, registrado_por) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             while (($data = fgetcsv($handle, 0, $delimiter)) !== FALSE) {
@@ -169,7 +160,7 @@ try {
                     continue;
                 }
 
-                $stmtInsertEq->execute([
+                 $stmtInsertEq->execute([
                     $defaultSucursalId,
                     $tipoNormalizado,
                     $marcaVal,
@@ -178,7 +169,8 @@ try {
                     $procVal,
                     $discoVal,
                     $ramVal,
-                    $estadoNormalizado
+                    $estadoNormalizado,
+                    $_SESSION['user_nombre'] ?? 'Sistema / CSV'
                 ]);
                 $equipoId = $db->lastInsertId();
                 $exitos++;
@@ -190,8 +182,8 @@ try {
                     $empId = $stmtEmp->fetchColumn();
 
                     if ($empId) {
-                        $stmtAsig = $db->prepare("INSERT INTO asignaciones (equipo_id, empleado_id, fecha_entrega, condicion_entrega) VALUES (?, ?, ?, 'Buen Estado')");
-                        $stmtAsig->execute([$equipoId, $empId, date('Y-m-d')]);
+                        $stmtAsig = $db->prepare("INSERT INTO asignaciones (equipo_id, empleado_id, fecha_entrega, condicion_entrega, asignado_por) VALUES (?, ?, ?, 'Buen Estado', ?)");
+                        $stmtAsig->execute([$equipoId, $empId, date('Y-m-d'), $_SESSION['user_nombre'] ?? 'Sistema / CSV']);
                         $asignados++;
                     } else {
                         // Si no existe el colaborador, devolvemos el estado a Disponible
@@ -224,19 +216,38 @@ try {
             // Iniciar Transacción para asegurar consistencia
             $db->beginTransaction();
 
+            // VERIFICACIÓN CRÍTICA: Asegurarse de que el equipo esté "Disponible"
+            $stmt_check = $db->prepare("SELECT estado FROM equipos WHERE id = ? FOR UPDATE");
+            $stmt_check->execute([$equipo_id]);
+            $estado_actual = $stmt_check->fetchColumn();
+
+            if ($estado_actual !== 'Disponible') {
+                $db->rollBack();
+                $_SESSION['flash_error'] = "Error: El equipo ya se encuentra asignado o no está disponible.";
+                header('Location: index.php');
+                exit;
+            }
+
+            $asignado_por_val = $_SESSION['user_nombre'] ?? 'Sistema';
+            $entregado_a_val = trim($_POST['entregado_a'] ?? '');
+
             // Insertar asignación
             $stmt_asig = $db->prepare("
-                INSERT INTO asignaciones (equipo_id, empleado_id, fecha_entrega, condicion_entrega) 
-                VALUES (?, ?, ?, ?)
+                INSERT INTO asignaciones (equipo_id, empleado_id, fecha_entrega, condicion_entrega, asignado_por, entregado_a) 
+                VALUES (?, ?, ?, ?, ?, ?)
             ");
-            $stmt_asig->execute([$equipo_id, $empleado_id, $fecha_entrega, $condicion_entrega]);
+            $stmt_asig->execute([$equipo_id, $empleado_id, $fecha_entrega, $condicion_entrega, $asignado_por_val, $entregado_a_val]);
+            
+            $asig_id = $db->lastInsertId();
 
             // Actualizar estado del equipo a 'Asignado'
             $stmt_eq = $db->prepare("UPDATE equipos SET estado = 'Asignado' WHERE id = ?");
             $stmt_eq->execute([$equipo_id]);
 
             $db->commit();
-            header('Location: index.php');
+            
+            // Redirigir a la vista de impresión con el ID de la asignación generada
+            header('Location: imprimir_asignacion.php?id=' . $asig_id);
             exit;
         }
 
@@ -249,14 +260,19 @@ try {
 
             $db->beginTransaction();
 
+            $devuelto_por_val = !empty(trim($_POST['devuelto_por'])) ? trim($_POST['devuelto_por']) : 'No especificado';
+            $recibido_por_val = $_SESSION['user_nombre'] ?? 'Sistema';
+
             // Actualizar la asignación activa agregando la fecha de devolución y la nota de retorno
             $stmt_asig = $db->prepare("
                 UPDATE asignaciones 
                 SET fecha_devolucion = ?, 
-                    condicion_entrega = CONCAT(condicion_entrega, ' | Retorno: ', ?) 
+                    condicion_devolucion = ?,
+                    devuelto_por = ?,
+                    recibido_por = ?
                 WHERE id = ?
             ");
-            $stmt_asig->execute([$fecha_devolucion, $condicion_devolucion, $asignacion_id]);
+            $stmt_asig->execute([$fecha_devolucion, $condicion_devolucion, $devuelto_por_val, $recibido_por_val, $asignacion_id]);
 
             // Regresar el equipo a 'Disponible'
             $stmt_eq = $db->prepare("UPDATE equipos SET estado = 'Disponible' WHERE id = ?");
@@ -279,10 +295,11 @@ try {
             $stmt_close = $db->prepare("
                 UPDATE asignaciones 
                 SET fecha_devolucion = CURDATE(), 
-                    condicion_entrega = CONCAT(condicion_entrega, ' | Cierre por Baja') 
+                    condicion_devolucion = 'Cierre por Baja',
+                    recibido_por = ?
                 WHERE equipo_id = ? AND fecha_devolucion IS NULL
             ");
-            $stmt_close->execute([$id]);
+            $stmt_close->execute([$_SESSION['user_nombre'] ?? 'Sistema / Baja', $id]);
 
             // Marcar equipo como de baja
             $stmt_eq = $db->prepare("UPDATE equipos SET estado = 'De Baja' WHERE id = ?");

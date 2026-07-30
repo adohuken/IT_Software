@@ -26,6 +26,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if ($user_id) {
             // MODO EDICIÓN
+            $stmt_old = $db->prepare("SELECT nombre, email FROM equipo_it WHERE id = ?");
+            $stmt_old->execute([$user_id]);
+            $old_user = $stmt_old->fetch();
+            if ($old_user) {
+                $isMainAdmin = ($user_id == 1 || strtolower(trim($old_user['nombre'])) === 'administrador it' || $old_user['email'] === 'admin@mastertec.com.ni' || $old_user['email'] === 'test@empresa.com.ni');
+                if ($isMainAdmin) {
+                    $_SESSION['flash_error'] = "El usuario Administrador IT principal está protegido y no se puede editar.";
+                    header('Location: index.php');
+                    exit;
+                }
+            }
+
             $stmt_check = $db->prepare("SELECT id FROM equipo_it WHERE email = ? AND id != ? LIMIT 1");
             $stmt_check->execute([$email, $user_id]);
             if ($stmt_check->fetch()) {
