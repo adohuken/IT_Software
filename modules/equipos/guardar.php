@@ -30,19 +30,42 @@ try {
             $marca = trim($_POST['marca']);
             $modelo = trim($_POST['modelo']);
             $service_tag_sn = trim($_POST['service_tag_sn']);
+            
             $ip_direccion = trim($_POST['ip_direccion'] ?? '') ?: null;
-            $notas = trim($_POST['notas'] ?? '') ?: null;
+            $procesador = trim($_POST['procesador'] ?? '') ?: null;
+            $ram = trim($_POST['ram'] ?? '') ?: null;
+            $disco = trim($_POST['disco'] ?? '') ?: null;
             
             $proveedor_origen = trim($_POST['proveedor_origen'] ?? '');
+            
+            // Estado y Notas
+            $notas = null;
+            if (in_array($tipo, ['Impresora', 'Control de acceso', 'Switch', 'AP', 'Servidor'])) {
+                $estado = 'Asignado'; // Ya están asignados a la sucursal al crearse
+            } else {
+                $estado = 'Disponible';
+            }
+
+            $usuario_local = trim($_POST['usuario_local'] ?? '');
+            $password_local = trim($_POST['password_local'] ?? '');
 
             $db->beginTransaction();
 
             $stmt = $db->prepare("
-                INSERT INTO equipos (sucursal_id, tipo, marca, modelo, service_tag_sn, ip_direccion, estado, notas, registrado_por, proveedor_origen) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO equipos (sucursal_id, tipo, marca, modelo, service_tag_sn, ip_direccion, procesador, disco, ram, estado, notas, registrado_por, proveedor_origen) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
-            $stmt->execute([$sucursal_id, $tipo, $marca, $modelo, $service_tag_sn, $ip_direccion, $estado, $notas, $_SESSION['user_nombre'] ?? 'Sistema', $proveedor_origen]);
+            $stmt->execute([$sucursal_id, $tipo, $marca, $modelo, $service_tag_sn, $ip_direccion, $procesador, $disco, $ram, $estado, $notas, $_SESSION['user_nombre'] ?? 'Sistema', $proveedor_origen]);
             $equipo_id = $db->lastInsertId();
+
+            // Guardar Credenciales Locales si se proveen
+            if (!empty($usuario_local) || !empty($password_local)) {
+                $stmtCred = $db->prepare("
+                    INSERT INTO credenciales_equipos (equipo_id, usuario_local, password_cifrado, clave_bitlocker, notas_acceso) 
+                    VALUES (?, ?, ?, NULL, NULL)
+                ");
+                $stmtCred->execute([$equipo_id, $usuario_local ?: 'admin', $password_local]);
+            }
 
             $db->commit();
 

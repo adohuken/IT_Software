@@ -314,7 +314,11 @@ if ($ver_historial_id > 0) {
                                         <div class="font-semibold text-slate-800"><?= htmlspecialchars($eq['empleado_nombre']) ?></div>
                                         <div class="text-[10px] text-slate-400"><?= htmlspecialchars($eq['empleado_depto']) ?></div>
                                     <?php else: ?>
-                                        <span class="text-slate-400 italic">No asignado</span>
+                                        <?php if (in_array($eq['tipo'], ['Impresora', 'Switch', 'AP', 'Control de acceso', 'Servidor'])): ?>
+                                            <span class="font-semibold text-slate-600"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i><?= htmlspecialchars($eq['sucursal_nombre']) ?></span>
+                                        <?php else: ?>
+                                            <span class="text-slate-400 italic">No asignado</span>
+                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </td>
                                 <td class="py-4 px-4">
@@ -324,25 +328,29 @@ if ($ver_historial_id > 0) {
                                 </td>
                                 <td class="py-4 px-4">
                                     <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
-                                        <!-- Ver Historial -->
-                                        <a href="?history_id=<?= $eq['id'] ?><?= !empty($filtro_sucursal)?'&sucursal_id='.$filtro_sucursal:'' ?><?= !empty($filtro_depto)?'&departamento='.$filtro_depto:'' ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800 transition" title="Ver Historial Asignaciones">
-                                            <i class="fa-regular fa-clock text-xs"></i>
-                                        </a>
+                                        <?php $isInfra = in_array($eq['tipo'], ['Impresora', 'Switch', 'AP', 'Control de acceso', 'Servidor']); ?>
                                         
-                                        <?php if ($eq['estado'] === 'Disponible'): ?>
-                                            <!-- Asignar Hardware -->
-                                            <button onclick="event.stopPropagation(); abrirAsignar('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>')" class="h-8 w-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center text-slate-500 hover:text-emerald-600 transition" title="Asignar Equipo">
-                                                <i class="fa-solid fa-user-plus text-xs"></i>
-                                            </button>
-                                        <?php elseif ($eq['estado'] === 'Asignado'): ?>
-                                            <!-- Imprimir Constancia -->
-                                            <a href="imprimir_asignacion.php?id=<?= $eq['asignacion_id'] ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-indigo-50 flex items-center justify-center text-slate-500 hover:text-indigo-600 transition" title="Imprimir Constancia">
-                                                <i class="fa-solid fa-print text-xs"></i>
+                                        <?php if (!$isInfra): ?>
+                                            <!-- Ver Historial -->
+                                            <a href="?history_id=<?= $eq['id'] ?><?= !empty($filtro_sucursal)?'&sucursal_id='.$filtro_sucursal:'' ?><?= !empty($filtro_depto)?'&departamento='.$filtro_depto:'' ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800 transition" title="Ver Historial Asignaciones">
+                                                <i class="fa-regular fa-clock text-xs"></i>
                                             </a>
-                                            <!-- Retornar / Devolver Hardware -->
-                                            <button onclick="event.stopPropagation(); abrirDevolver('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>', '<?= $eq['asignacion_id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-amber-50 flex items-center justify-center text-slate-500 hover:text-amber-600 transition" title="Registrar Devolución">
-                                                <i class="fa-solid fa-arrow-rotate-left text-xs"></i>
-                                            </button>
+                                            
+                                            <?php if ($eq['estado'] === 'Disponible'): ?>
+                                                <!-- Asignar Hardware -->
+                                                <button onclick="event.stopPropagation(); abrirAsignar('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>')" class="h-8 w-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center text-slate-500 hover:text-emerald-600 transition" title="Asignar Equipo">
+                                                    <i class="fa-solid fa-user-plus text-xs"></i>
+                                                </button>
+                                            <?php elseif ($eq['estado'] === 'Asignado'): ?>
+                                                <!-- Imprimir Constancia -->
+                                                <a href="imprimir_asignacion.php?id=<?= $eq['asignacion_id'] ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-indigo-50 flex items-center justify-center text-slate-500 hover:text-indigo-600 transition" title="Imprimir Constancia">
+                                                    <i class="fa-solid fa-print text-xs"></i>
+                                                </a>
+                                                <!-- Retornar / Devolver Hardware -->
+                                                <button onclick="event.stopPropagation(); abrirDevolver('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>', '<?= $eq['asignacion_id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-amber-50 flex items-center justify-center text-slate-500 hover:text-amber-600 transition" title="Registrar Devolución">
+                                                    <i class="fa-solid fa-arrow-rotate-left text-xs"></i>
+                                                </button>
+                                            <?php endif; ?>
                                         <?php endif; ?>
                                         
                                         <!-- Eliminar / Dar de Baja -->
@@ -377,12 +385,13 @@ if ($ver_historial_id > 0) {
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label for="eq_tipo" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Tipo de Activo</label>
-                    <select autocomplete="off" name="tipo" id="eq_tipo" required onchange="toggleOtroTipo(this, 'eq_tipo_otro_container')" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                    <select autocomplete="off" name="tipo" id="eq_tipo" required onchange="aplicarReglasCamposActivo(this.value)" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                         <option value="Laptop" selected>Laptop</option>
                         <option value="Desktop">Desktop</option>
-                        <option value="Impresora">Impresora</option>
                         <option value="Celular">Celular</option>
                         <option value="Servidor">Servidor</option>
+                        <option value="Impresora">Impresora</option>
+                        <option value="Control de acceso">Control de acceso</option>
                         <option value="Switch">Switch</option>
                         <option value="AP">AP</option>
                         <option value="__otro__">+ Agregar otro tipo...</option>
@@ -391,7 +400,7 @@ if ($ver_historial_id > 0) {
                         <input type="text" name="tipo_otro" id="eq_tipo_otro" placeholder="Especifica el tipo de equipo..." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:border-cyan-400">
                     </div>
                 </div>
-                <div>
+                <div id="campo_sucursal">
                     <label for="eq_suc" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Ubicación / Sucursal</label>
                     <select autocomplete="off" name="sucursal_id" id="eq_suc" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                         <?php foreach ($sucursales as $s): ?>
@@ -401,41 +410,58 @@ if ($ver_historial_id > 0) {
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-4">
-                <div>
+                <div id="campo_marca">
                     <label for="eq_marca" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Marca</label>
                     <input type="text" name="marca" id="eq_marca" required placeholder="Ej: Dell, Cisco, Fortinet" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
-                <div>
+                <div id="campo_modelo">
                     <label for="eq_mod" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Modelo</label>
                     <input type="text" name="modelo" id="eq_mod" required placeholder="Ej: Latitude 5420" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-4">
-                <div>
+                <div id="campo_sn">
                     <label for="eq_sn" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Service Tag / S/N</label>
                     <input type="text" name="service_tag_sn" id="eq_sn" required placeholder="Código Único" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
-                <div>
-                    <label for="eq_ip" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Dirección IP (Opcional)</label>
+                <div id="campo_ip" class="hidden">
+                    <label for="eq_ip" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Dirección IP</label>
                     <input type="text" name="ip_direccion" id="eq_ip" placeholder="Ej: 192.168.10.X" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
             </div>
-            <div>
-                <label for="eq_est" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Estado Inicial</label>
-                <select autocomplete="off" name="estado" id="eq_est" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
-                    <option value="Disponible" selected>Disponible</option>
-                    <option value="Mantenimiento">Mantenimiento</option>
-                </select>
+
+            <!-- Grupo Hardware (Oculto por defecto para ciertos equipos) -->
+            <div id="grupo_hardware" class="grid grid-cols-3 gap-4">
+                <div>
+                    <label for="eq_procesador" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Procesador</label>
+                    <input type="text" name="procesador" id="eq_procesador" placeholder="Ej: i5 11va Gen" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                </div>
+                <div>
+                    <label for="eq_ram" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">RAM</label>
+                    <input type="text" name="ram" id="eq_ram" placeholder="Ej: 16GB DDR4" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                </div>
+                <div>
+                    <label for="eq_disco" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Disco</label>
+                    <input type="text" name="disco" id="eq_disco" placeholder="Ej: 512GB SSD" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                </div>
             </div>
-            <div>
-                <label for="eq_notes" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Notas descriptivas</label>
-                <textarea name="notas" id="eq_notes" rows="2" placeholder="Detalles de hardware, licencias locales de OS, etc..." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400"></textarea>
+
+            <!-- Grupo Credenciales Locales -->
+            <div id="grupo_credenciales" class="grid grid-cols-2 gap-4 border border-blue-100 rounded-2xl p-4 bg-blue-50/50">
+                <div>
+                    <label for="eq_usuario_local" class="text-xs font-semibold text-blue-600 uppercase tracking-wider block mb-2">Usuario Local (OS)</label>
+                    <input type="text" name="usuario_local" id="eq_usuario_local" placeholder="Ej: AdminLocal" class="w-full bg-white border border-blue-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-blue-400">
+                </div>
+                <div>
+                    <label for="eq_password_local" class="text-xs font-semibold text-blue-600 uppercase tracking-wider block mb-2">Contraseña Local</label>
+                    <input type="text" name="password_local" id="eq_password_local" placeholder="Contraseña de la cuenta" class="w-full bg-white border border-blue-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-blue-400">
+                </div>
             </div>
             <!-- Origen del equipo al registrar -->
             <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-4">
                 <div>
-                    <label for="eq_proveedor_origen" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Entregado a IT / Provisto por (Opcional)</label>
-                    <input type="text" name="proveedor_origen" id="eq_proveedor_origen" placeholder="Nombre de quien entregó o proveedor del equipo" class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                    <label for="eq_proveedor_origen" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Entregado a IT / Provisto por</label>
+                    <input type="text" name="proveedor_origen" id="eq_proveedor_origen" required placeholder="Nombre de quien entregó o proveedor del equipo" class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
             </div>
             
@@ -605,7 +631,7 @@ if ($ver_historial_id > 0) {
             </div>
 
             <!-- Sección 3: Credenciales de Acceso Local -->
-            <div>
+            <div id="det_sec_credenciales">
                 <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                     <i class="fa-solid fa-key text-amber-500"></i> Acceso Local y Seguridad
                 </h4>
@@ -637,7 +663,7 @@ if ($ver_historial_id > 0) {
             </div>
 
             <!-- Sección 4: Observaciones del Registro -->
-            <div>
+            <div id="det_sec_observaciones">
                 <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                     <i class="fa-solid fa-file-lines text-slate-400"></i> Observaciones del Activo
                 </h4>
@@ -748,8 +774,24 @@ if ($ver_historial_id > 0) {
             rowNotas.classList.add('hidden');
         }
 
+        // Ocultar componentes extra para infraestructura
+        const isInfra = ['Impresora', 'Switch', 'AP', 'Control de acceso', 'Servidor'].includes(eq.tipo);
+        const secCredenciales = document.getElementById('det_sec_credenciales');
+        const secObservaciones = document.getElementById('det_sec_observaciones');
+        const linkHistorial = document.getElementById('det_link_historial');
+        
+        if (isInfra) {
+            secCredenciales.classList.add('hidden');
+            secObservaciones.classList.add('hidden');
+            linkHistorial.classList.add('hidden');
+        } else {
+            secCredenciales.classList.remove('hidden');
+            secObservaciones.classList.remove('hidden');
+            linkHistorial.classList.remove('hidden');
+        }
+
         // Enlace al historial
-        document.getElementById('det_link_historial').href = '?history_id=' + eq.id;
+        linkHistorial.href = '?history_id=' + eq.id;
 
         abrirModal('modal-detalle-equipo');
     }
@@ -779,48 +821,70 @@ if ($ver_historial_id > 0) {
         abrirModal('modal-devolver');
     }
 
-    function toggleAsignacionRegistro() {
-        const checkAsig = document.getElementById('eq_asignar_inmediato');
-        const divAsig = document.getElementById('div-asignacion-registro');
-        const estadoSel = document.getElementById('eq_est');
-        const empSel = document.getElementById('eq_reg_empleado');
-        const condInput = document.getElementById('eq_reg_condicion');
-
-        if (checkAsig.checked) {
-            divAsig.classList.remove('hidden');
-            estadoSel.value = 'Disponible';
-            estadoSel.disabled = true;
-            empSel.required = true;
-            condInput.required = true;
+    // Reglas de visualización de campos al crear activo
+    function aplicarReglasCamposActivo(tipo) {
+        // Referencias
+        const containerOtro = document.getElementById('eq_tipo_otro_container');
+        const campoIp = document.getElementById('campo_ip');
+        const eqIp = document.getElementById('eq_ip');
+        
+        const grupoHardware = document.getElementById('grupo_hardware');
+        const grupoCredenciales = document.getElementById('grupo_credenciales');
+        
+        const labelSucursal = document.querySelector('label[for="eq_suc"]');
+        
+        // "Otro"
+        if (tipo === '__otro__') {
+            containerOtro.classList.remove('hidden');
+            document.getElementById('eq_tipo_otro').required = true;
         } else {
-            divAsig.classList.add('hidden');
-            estadoSel.disabled = false;
-            empSel.required = false;
-            condInput.required = false;
-            empSel.value = '';
-            condInput.value = '';
+            containerOtro.classList.add('hidden');
+            document.getElementById('eq_tipo_otro').required = false;
+        }
+
+        // Cambiar Etiqueta de Sucursal
+        if (['Impresora', 'Control de acceso', 'Switch', 'AP', 'Servidor'].includes(tipo)) {
+            labelSucursal.innerText = 'Asignado a (Sucursal)';
+        } else {
+            labelSucursal.innerText = 'Ubicación / Sucursal';
+        }
+
+        // Grupo C (Sin Hardware, Sin Cred, CON IP)
+        if (['Impresora', 'Control de acceso', 'Switch', 'AP'].includes(tipo)) {
+            // Ocultar hardware y credenciales
+            grupoHardware.classList.add('hidden');
+            grupoCredenciales.classList.add('hidden');
+            
+            // Mostrar IP
+            campoIp.classList.remove('hidden');
+            eqIp.required = false;
+        } 
+        // Grupo A (Con Hardware, Con Cred, SIN IP)
+        else if (['Laptop', 'Desktop', 'Celular'].includes(tipo)) {
+            grupoHardware.classList.remove('hidden');
+            grupoCredenciales.classList.remove('hidden');
+            
+            campoIp.classList.add('hidden');
+            eqIp.value = ''; // Limpiar
+        }
+        // Grupo B (Servidor - Con Hardware, Sin Cred, CON IP)
+        else if (tipo === 'Servidor') {
+            grupoHardware.classList.remove('hidden');
+            grupoCredenciales.classList.add('hidden'); // Se quitaron las credenciales para servidor
+            
+            campoIp.classList.remove('hidden');
+        } else {
+            // Por defecto muestra todo si selecciona '__otro__'
+            grupoHardware.classList.remove('hidden');
+            grupoCredenciales.classList.remove('hidden');
+            campoIp.classList.remove('hidden');
         }
     }
 
-    function toggleOtroTipo(select, containerId) {
-        const container = document.getElementById(containerId);
-        if (container) {
-            if (select.value === '__otro__') {
-                container.classList.remove('hidden');
-                const input = container.querySelector('input');
-                if (input) {
-                    input.required = true;
-                    input.focus();
-                }
-            } else {
-                container.classList.add('hidden');
-                const input = container.querySelector('input');
-                if (input) {
-                    input.required = false;
-                }
-            }
-        }
-    }
+    // Ejecutar al inicio para el valor por defecto
+    document.addEventListener('DOMContentLoaded', () => {
+        aplicarReglasCamposActivo(document.getElementById('eq_tipo').value);
+    });
 
     function filtrarTablaEquipos() {
         const input = document.getElementById('buscar_equipo');

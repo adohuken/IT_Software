@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS `credenciales_personales` (
 CREATE TABLE IF NOT EXISTS `equipos` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `sucursal_id` INT NOT NULL,
-    `tipo` ENUM('Laptop', 'Desktop', 'Servidor', 'Maquina Virtual', 'Switch', 'Firewall', 'Access Point') NOT NULL,
+    `tipo` ENUM('Laptop', 'Desktop', 'Servidor', 'Maquina Virtual', 'Switch', 'Firewall', 'AP', 'Impresora', 'Celular', 'Control de acceso', 'Otro') NOT NULL,
     `marca` VARCHAR(50),
     `modelo` VARCHAR(100),
     `service_tag_sn` VARCHAR(100) UNIQUE,
