@@ -208,9 +208,9 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                                             <i class="fa-solid fa-pen text-xs"></i>
                                         </button>
                                         <!-- Dar de Baja -->
-                                        <a href="guardar.php?action=baja&id=<?= $emp['id'] ?>" onclick="event.stopPropagation(); return confirm('¿Seguro que deseas dar de baja a este empleado? Esto no eliminará los equipos del sistema, pero los liberará de su asignación.');" class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition" title="Dar de Baja Colaborador">
+                                        <button onclick="event.stopPropagation(); confirmarBajaEmpleado('guardar.php?action=baja&id=<?= $emp['id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition" title="Dar de Baja Colaborador">
                                             <i class="fa-solid fa-user-minus text-xs"></i>
-                                        </a>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -994,7 +994,26 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
     </div>
 </div>
 
+<!-- Modal Dar de Baja Empleado -->
+<div id="modal-baja-empleado" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
+    <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in text-center p-8">
+        <div class="h-16 w-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
+            <i class="fa-solid fa-user-minus"></i>
+        </div>
+        <h3 class="font-bold text-slate-800 text-xl mb-2">Dar de baja empleado</h3>
+        <p class="text-slate-500 text-sm mb-6">¿Seguro que deseas dar de baja a este empleado? Esto no eliminará los equipos del sistema, pero los liberará de su asignación.</p>
+        <div class="flex gap-3 w-full">
+            <button type="button" onclick="cerrarModal('modal-baja-empleado')" class="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition">Cancelar</button>
+            <a id="btn_confirmar_baja_emp" href="#" class="flex-1 py-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm transition shadow-lg shadow-rose-500/30 flex items-center justify-center">Sí, dar de baja</a>
+        </div>
+    </div>
+</div>
+
 <script>
+    function confirmarBajaEmpleado(url) {
+        document.getElementById('btn_confirmar_baja_emp').href = url;
+        abrirModal('modal-baja-empleado');
+    }
     // Track which select triggered the "new sucursal" modal
     let _sucSelectOrigin = null;
     let _previousSucValue = '';

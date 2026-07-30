@@ -485,12 +485,11 @@ foreach ($fichas_raw as $f) {
                                                 title="Editar Credencial y Detalles">
                                                 <i class="fa-solid fa-pen text-xs"></i>
                                             </button>
-                                            <a href="guardar.php?action=delete_eq&id=<?= $ce['id'] ?>"
-                                                onclick="event.stopPropagation(); return confirm('¿Seguro que deseas eliminar esta credencial?');"
+                                            <button type="button" onclick="event.stopPropagation(); confirmarEliminar('guardar.php?action=delete_eq&id=<?= $ce['id'] ?>', 'esta credencial de equipo')"
                                                 class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition"
                                                 title="Eliminar">
                                                 <i class="fa-regular fa-trash-can text-xs"></i>
-                                            </a>
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -580,12 +579,11 @@ foreach ($fichas_raw as $f) {
                                     </td>
                                     <td class="py-3 px-4 text-center">
                                         <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
-                                            <a href="guardar.php?action=delete_web&id=<?= $cw['id'] ?>"
-                                                onclick="event.stopPropagation(); return confirm('¿Seguro que deseas eliminar esta credencial?');"
+                                            <button type="button" onclick="event.stopPropagation(); confirmarEliminar('guardar.php?action=delete_web&id=<?= $cw['id'] ?>', 'esta credencial web')"
                                                 class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition"
                                                 title="Eliminar">
                                                 <i class="fa-regular fa-trash-can text-xs"></i>
-                                            </a>
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -725,12 +723,11 @@ foreach ($fichas_raw as $f) {
                                                 <i class="fa-solid fa-pen text-xs"></i>
                                             </button>
                                             <!-- Eliminar -->
-                                            <a href="guardar.php?action=delete_m365&id=<?= $m365['id'] ?>"
-                                                onclick="event.stopPropagation(); return confirm('¿Seguro que deseas eliminar esta cuenta?');"
+                                            <button type="button" onclick="event.stopPropagation(); confirmarEliminar('guardar.php?action=delete_m365&id=<?= $m365['id'] ?>', 'esta cuenta de Microsoft 365')"
                                                 class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition"
                                                 title="Eliminar">
                                                 <i class="fa-regular fa-trash-can text-xs"></i>
-                                            </a>
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -2174,8 +2171,30 @@ foreach ($fichas_raw as $f) {
         </form>
     </div>
 </div>
+</div>
+
+<!-- Modal Eliminar Credencial/Cuenta -->
+<div id="modal-eliminar-cred" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
+    <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in text-center p-8">
+        <div class="h-16 w-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <h3 class="font-bold text-slate-800 text-xl mb-2">Eliminar Registro</h3>
+        <p class="text-slate-500 text-sm mb-6" id="txt_eliminar_cred">¿Estás seguro que deseas eliminar este registro? Esta acción es irreversible.</p>
+        <div class="flex gap-3 w-full">
+            <button type="button" onclick="cerrarModal('modal-eliminar-cred')" class="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition">Cancelar</button>
+            <a id="btn_confirmar_eliminar_cred" href="#" class="flex-1 py-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm transition shadow-lg shadow-rose-500/30 flex items-center justify-center">Sí, eliminar</a>
+        </div>
+    </div>
+</div>
 
 <script>
+    function confirmarEliminar(url, texto) {
+        document.getElementById('btn_confirmar_eliminar_cred').href = url;
+        document.getElementById('txt_eliminar_cred').innerText = `¿Seguro que deseas eliminar ${texto}? Esta acción es irreversible y los datos se perderán.`;
+        abrirModal('modal-eliminar-cred');
+    }
+
     let currentEquiposLista = [];
 
     function verDetalleCredEquipo(ce) {

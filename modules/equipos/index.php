@@ -94,11 +94,6 @@ if ($ver_historial_id > 0) {
             <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Inventario y Asignación de Hardware</h2>
             <p class="text-slate-500 text-sm">Control de equipos de red, servidores, computadoras corporativas y asignaciones.</p>
         </div>
-        <div>
-            <button onclick="abrirModal('modal-nuevo-equipo')" class="px-4 py-2.5 rounded-xl grad-cyan-blue hover:opacity-90 text-slate-800 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/10 flex items-center gap-2">
-                <i class="fa-solid fa-plus"></i> Registrar Equipo
-            </button>
-        </div>
     </div>
 
     <!-- Barra de Filtros -->
@@ -354,9 +349,9 @@ if ($ver_historial_id > 0) {
                                         <?php endif; ?>
                                         
                                         <!-- Eliminar / Dar de Baja -->
-                                        <a href="guardar.php?action=baja&id=<?= $eq['id'] ?>" onclick="event.stopPropagation(); return confirm('¿Seguro que deseas dar de baja este equipo?');" class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition" title="Dar de Baja">
+                                        <button onclick="event.stopPropagation(); confirmarBaja('<?= $eq['id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition" title="Dar de Baja">
                                             <i class="fa-regular fa-trash-can text-xs"></i>
-                                        </a>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -689,6 +684,21 @@ if ($ver_historial_id > 0) {
     </div>
 </div>
 
+<!-- 5. Modal Dar de Baja Equipo -->
+<div id="modal-baja-equipo" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
+    <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in text-center p-8">
+        <div class="h-16 w-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <h3 class="font-bold text-slate-800 text-xl mb-2">Dar de baja equipo</h3>
+        <p class="text-slate-500 text-sm mb-6">¿Estás seguro que deseas dar de baja este equipo? Esta acción cambiará su estado a "De Baja".</p>
+        <div class="flex gap-3 w-full">
+            <button type="button" onclick="cerrarModal('modal-baja-equipo')" class="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition">Cancelar</button>
+            <a id="btn_confirmar_baja" href="#" class="flex-1 py-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm transition shadow-lg shadow-rose-500/30 flex items-center justify-center">Sí, dar de baja</a>
+        </div>
+    </div>
+</div>
+
 <script>
     function abrirModal(id) {
         const modal = document.getElementById(id);
@@ -704,6 +714,11 @@ if ($ver_historial_id > 0) {
     
     function cerrarModal(id) {
         document.getElementById(id).classList.add('hidden');
+    }
+
+    function confirmarBaja(id) {
+        document.getElementById('btn_confirmar_baja').href = 'guardar.php?action=baja&id=' + id;
+        abrirModal('modal-baja-equipo');
     }
 
     function verDetalleEquipo(eq) {
