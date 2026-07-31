@@ -79,51 +79,24 @@ try {
         ");
         $equipos_resumen = $stmt_eq->fetchAll();
 
-        // 5. Datos para Gráfico Donut (Distribución de Equipos)
-        $chart_tipos = [];
-        $total_equipos_chart = 0;
-        foreach ($equipos_resumen as $eq) {
-            if (!isset($chart_tipos[$eq['tipo']])) {
-                $chart_tipos[$eq['tipo']] = 0;
-            }
-            $chart_tipos[$eq['tipo']] += (int)$eq['total'];
-            $total_equipos_chart += (int)$eq['total'];
-        }
-        arsort($chart_tipos); // Ordenar de mayor a menor
-        
-        $donut_labels = [];
-        $donut_data = [];
-        foreach ($chart_tipos as $tipo => $total) {
-            $donut_labels[] = $tipo;
-            $donut_data[] = $total;
-        }
-
-        // 6. Datos para Gráfico de Barras (Asignaciones últimos 6 meses)
-        $db->query("SET lc_time_names = 'es_ES'");
-        $stmt_bar = $db->query("
-            SELECT LEFT(MONTHNAME(fecha_entrega), 3) as mes, COUNT(*) as total, MONTH(fecha_entrega) as m
-            FROM asignaciones 
-            WHERE fecha_entrega >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) 
-            GROUP BY mes, m 
-            ORDER BY m ASC
+        // 5. Últimos Equipos Registrados
+        $stmt_ultimos_equipos = $db->query("
+            SELECT id, tipo, marca, modelo, estado 
+            FROM equipos 
+            ORDER BY id DESC 
+            LIMIT 5
         ");
-        $bar_results = $stmt_bar->fetchAll();
-        $bar_labels = [];
-        $bar_data = [];
-        foreach ($bar_results as $row) {
-            $bar_labels[] = ucfirst($row['mes']);
-            $bar_data[] = $row['total'];
-        }
+        $ultimos_equipos = $stmt_ultimos_equipos->fetchAll();
 
-        // Asegurar que no esté vacío para Chart.js
-        if (empty($bar_labels)) {
-            $bar_labels = ['Sin datos'];
-            $bar_data = [0];
-        }
-        if (empty($donut_labels)) {
-            $donut_labels = ['Sin equipos'];
-            $donut_data = [1];
-        }
+        // 6. Últimos Colaboradores Registrados
+        $stmt_ultimos_colaboradores = $db->query("
+            SELECT id, nombre, cargo, departamento 
+            FROM empleados 
+            WHERE cargo NOT IN ('Sucursal', 'Empresa')
+            ORDER BY id DESC 
+            LIMIT 5
+        ");
+        $ultimos_colaboradores = $stmt_ultimos_colaboradores->fetchAll();
 
     }
 } catch (Exception $e) {
@@ -178,7 +151,71 @@ require_once __DIR__ . '/includes/header.php';
 
 <!-- DASHBOARD ACTIVO -->
 <!-- DASHBOARD PREMIUM REDISEÑADO -->
-<div class="space-y-6 animate-fade-in-up">
+<div class="max-w-[1400px] mx-auto space-y-6 animate-fade-in-up">
+
+    <!-- Accesos Directos (Compactos) -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <!-- 1. Equipos -->
+        <a href="<?= BASE_URL ?>modules/equipos/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-violet-300 transition group">
+            <div class="h-10 w-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0 group-hover:bg-violet-600 group-hover:text-white transition-colors duration-300 shadow-inner">
+                <i class="fa-solid fa-server"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-sm text-slate-800 group-hover:text-violet-700 transition">Equipos</h3>
+                <p class="text-[11px] text-slate-400">Inventario</p>
+            </div>
+        </a>
+        <!-- 2. Credenciales -->
+        <a href="<?= BASE_URL ?>modules/credenciales/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-cyan-300 transition group">
+            <div class="h-10 w-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0 group-hover:bg-cyan-500 group-hover:text-white transition-colors duration-300 shadow-inner">
+                <i class="fa-solid fa-key"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-sm text-slate-800 group-hover:text-cyan-700 transition">Credenciales</h3>
+                <p class="text-[11px] text-slate-400">Accesos y M365</p>
+            </div>
+        </a>
+        <!-- 3. Colaboradores -->
+        <a href="<?= BASE_URL ?>modules/empleados/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-emerald-300 transition group">
+            <div class="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition-colors duration-300 shadow-inner">
+                <i class="fa-solid fa-users"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-sm text-slate-800 group-hover:text-emerald-700 transition">Colaboradores</h3>
+                <p class="text-[11px] text-slate-400">Personal activo</p>
+            </div>
+        </a>
+        <!-- 4. Tareas IT -->
+        <a href="<?= BASE_URL ?>modules/tareas/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-blue-300 transition group">
+            <div class="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors duration-300 shadow-inner">
+                <i class="fa-solid fa-list-check"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-sm text-slate-800 group-hover:text-blue-700 transition">Tareas IT</h3>
+                <p class="text-[11px] text-slate-400">Pendientes/Progreso</p>
+            </div>
+        </a>
+        <!-- 5. Usuarios IT -->
+        <a href="<?= BASE_URL ?>modules/usuarios/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-300 transition group">
+            <div class="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300 shadow-inner">
+                <i class="fa-solid fa-user-shield"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-sm text-slate-800 group-hover:text-indigo-700 transition">Usuarios IT</h3>
+                <p class="text-[11px] text-slate-400">Administradores</p>
+            </div>
+        </a>
+        <!-- 6. Configuración -->
+        <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-amber-300 transition group">
+            <div class="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 group-hover:bg-amber-500 group-hover:text-white transition-colors duration-300 shadow-inner">
+                <i class="fa-solid fa-sliders"></i>
+            </div>
+            <div>
+                <h3 class="font-bold text-sm text-slate-800 group-hover:text-amber-700 transition">Configuración</h3>
+                <p class="text-[11px] text-slate-400">Sistema y Ajustes</p>
+            </div>
+        </a>
+    </div>
 
     <!-- Top 4 KPIs -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -228,80 +265,134 @@ require_once __DIR__ . '/includes/header.php';
         </div>
     </div>
 
-    <!-- Grid de Accesos Directos (Tarjetas/Botones) -->
-    <div class="space-y-4">
-        <div>
-            <h2 class="text-lg font-bold text-slate-850 tracking-tight">Accesos Directos</h2>
-            <p class="text-xs text-slate-400">Navega rápidamente a las distintas secciones del sistema.</p>
+    <!-- SECCIÓN DE ACTIVIDAD RECIENTE -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Últimos Equipos -->
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col h-80 overflow-hidden">
+            <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-server text-violet-500"></i> Equipos Recientes
+            </h3>
+            <div class="overflow-y-auto pr-2 custom-scrollbar flex-1">
+                <?php if (empty($ultimos_equipos)): ?>
+                    <div class="text-center text-slate-400 py-8 text-sm">No hay equipos registrados.</div>
+                <?php else: ?>
+                    <div class="space-y-3">
+                        <?php foreach ($ultimos_equipos as $eq): 
+                            $badge_color = 'bg-slate-100 text-slate-600 border-slate-200';
+                            if ($eq['estado'] == 'Asignado') $badge_color = 'bg-blue-50 text-blue-600 border-blue-200';
+                            if ($eq['estado'] == 'Disponible') $badge_color = 'bg-emerald-50 text-emerald-600 border-emerald-200';
+                            if (in_array($eq['estado'], ['Dañado', 'En Reparación'])) $badge_color = 'bg-rose-50 text-rose-600 border-rose-200';
+                        ?>
+                            <div class="flex items-center justify-between p-3 rounded-2xl border border-slate-100 hover:border-violet-200 hover:shadow-sm transition bg-white">
+                                <div class="flex items-center gap-3">
+                                    <div class="h-10 w-10 rounded-xl bg-violet-50 text-violet-500 flex items-center justify-center shrink-0">
+                                        <i class="fa-solid fa-laptop"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-800"><?= htmlspecialchars($eq['marca'] . ' ' . $eq['modelo']) ?></p>
+                                        <p class="text-[11px] text-slate-400 font-medium"><?= htmlspecialchars($eq['tipo']) ?></p>
+                                    </div>
+                                </div>
+                                <span class="px-2.5 py-1.5 rounded-xl text-[10px] font-bold border <?= $badge_color ?>">
+                                    <?= htmlspecialchars($eq['estado']) ?>
+                                </span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
         </div>
         
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-6">
-            <!-- 1. Equipos -->
-            <a href="<?= BASE_URL ?>modules/equipos/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-violet-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
-                <div class="h-10 w-10 rounded-2xl bg-violet-500/5 border border-violet-500/10 text-violet-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
-                    <i class="fa-solid fa-server"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-violet-600 transition-colors">Equipos</h3>
-                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Inventario y asignación.</p>
-                </div>
-            </a>
-
-            <!-- 2. Credenciales -->
-            <a href="<?= BASE_URL ?>modules/credenciales/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-cyan-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
-                <div class="h-10 w-10 rounded-2xl bg-cyan-500/5 border border-cyan-500/10 text-cyan-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
-                    <i class="fa-solid fa-key"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-cyan-600 transition-colors">Credenciales</h3>
-                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Accesos cifrados y equipos.</p>
-                </div>
-            </a>
-
-            <!-- 3. Colaboradores -->
-            <a href="<?= BASE_URL ?>modules/empleados/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-emerald-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
-                <div class="h-10 w-10 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
-                    <i class="fa-solid fa-users"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-emerald-600 transition-colors">Colaboradores</h3>
-                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Personal e historial de asignación.</p>
-                </div>
-            </a>
-
-            <!-- 4. Tareas IT -->
-            <a href="<?= BASE_URL ?>modules/tareas/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-blue-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
-                <div class="h-10 w-10 rounded-2xl bg-blue-500/5 border border-blue-500/10 text-blue-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
-                    <i class="fa-solid fa-list-check"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-blue-600 transition-colors">Tareas IT</h3>
-                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Pendientes, vencidas y progreso.</p>
-                </div>
-            </a>
-
-            <!-- 5. Usuarios IT -->
-            <a href="<?= BASE_URL ?>modules/usuarios/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-indigo-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
-                <div class="h-10 w-10 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 text-indigo-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
-                    <i class="fa-solid fa-user-shield"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-indigo-600 transition-colors">Usuarios IT</h3>
-                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Roles de soporte y administración.</p>
-                </div>
-            </a>
-
-            <!-- 6. Configuración -->
-            <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-amber-500/30 transition-all duration-300 flex flex-col justify-between group h-40">
-                <div class="h-10 w-10 rounded-2xl bg-amber-500/5 border border-amber-500/10 text-amber-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
-                    <i class="fa-solid fa-sliders"></i>
-                </div>
-                <div>
-                    <h3 class="font-bold text-sm text-slate-800 group-hover:text-amber-600 transition-colors">Configuración</h3>
-                    <p class="text-[10px] text-slate-400 mt-1 leading-tight">Carga masiva, BD y asistente IA.</p>
-                </div>
-            </a>
+        <!-- Últimos Colaboradores -->
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 flex flex-col h-80 overflow-hidden">
+            <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-users text-emerald-500"></i> Colaboradores Recientes
+            </h3>
+            <div class="overflow-y-auto pr-2 custom-scrollbar flex-1">
+                <?php if (empty($ultimos_colaboradores)): ?>
+                    <div class="text-center text-slate-400 py-8 text-sm">No hay colaboradores registrados.</div>
+                <?php else: ?>
+                    <div class="space-y-3">
+                        <?php foreach ($ultimos_colaboradores as $col): ?>
+                            <div class="flex items-center justify-between p-3 rounded-2xl border border-slate-100 hover:border-emerald-200 hover:shadow-sm transition bg-white">
+                                <div class="flex items-center gap-3">
+                                    <div class="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-500 flex items-center justify-center shrink-0">
+                                        <i class="fa-solid fa-user"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-800"><?= htmlspecialchars($col['nombre']) ?></p>
+                                        <p class="text-[11px] text-slate-400 font-medium"><?= htmlspecialchars($col['cargo']) ?></p>
+                                    </div>
+                                </div>
+                                <span class="text-[10px] font-bold text-slate-400 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-100">
+                                    <?= htmlspecialchars($col['departamento'] ?? 'N/A') ?>
+                                </span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
         </div>
+    </div>
+
+    <!-- SECCIÓN DE ALERTAS Y TAREAS -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Tareas Urgentes -->
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-triangle-exclamation text-amber-500"></i> Tareas Urgentes
+                </h3>
+                <a href="<?= BASE_URL ?>modules/tareas/index.php" class="text-[10px] font-bold uppercase tracking-widest text-cyan-500 hover:text-cyan-600 transition">Ver todas</a>
+            </div>
+            
+            <?php if (empty($tareas_urgentes)): ?>
+                <div class="p-6 text-center text-slate-400 text-xs">No hay tareas urgentes.</div>
+            <?php else: ?>
+                <div class="space-y-3">
+                    <?php foreach ($tareas_urgentes as $tu): ?>
+                        <div class="flex items-start justify-between gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100 hover:border-amber-200 transition">
+                            <div>
+                                <p class="text-xs font-bold text-slate-700"><?= htmlspecialchars($tu['titulo']) ?></p>
+                                <p class="text-[10px] text-slate-500 mt-1"><i class="fa-regular fa-user mr-1"></i> <?= htmlspecialchars($tu['asignado_nombre'] ?? 'Sin Asignar') ?></p>
+                            </div>
+                            <span class="text-[9px] font-bold uppercase px-2 py-1 rounded-md shrink-0 <?= $tu['estado'] === 'Vencida' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600' ?>"><?= $tu['estado'] ?></span>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Licencias M365 Próximas a Pagar -->
+        <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-brands fa-microsoft text-blue-500"></i> Renovaciones M365
+                </h3>
+                <a href="<?= BASE_URL ?>modules/credenciales/index.php?tab=m365" class="text-[10px] font-bold uppercase tracking-widest text-cyan-500 hover:text-cyan-600 transition">Ver todas</a>
+            </div>
+            
+            <?php if (empty($m365_proximos)): ?>
+                <div class="p-6 text-center text-slate-400 text-xs">No hay renovaciones próximas.</div>
+            <?php else: ?>
+                <div class="space-y-3">
+                    <?php foreach ($m365_proximos as $m): ?>
+                        <div class="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100 hover:border-blue-200 transition">
+                            <div class="overflow-hidden">
+                                <p class="text-xs font-bold text-slate-700 truncate"><?= htmlspecialchars($m['correo']) ?></p>
+                                <p class="text-[10px] text-slate-500 mt-1 truncate"><i class="fa-regular fa-user mr-1"></i> <?= htmlspecialchars($m['empleado_nombre'] ?? 'N/A') ?></p>
+                            </div>
+                            <div class="text-right shrink-0 bg-white border border-slate-200 px-3 py-1.5 rounded-xl">
+                                <p class="text-[10px] font-bold text-slate-800"><?= date('d M, Y', strtotime($m['fecha_proximo_pago'])) ?></p>
+                                <p class="text-[9px] text-blue-500 font-bold uppercase mt-0.5"><?= $m['ciclo_facturacion'] ?></p>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
     </div>
 
 </div>
@@ -317,6 +408,8 @@ require_once __DIR__ . '/includes/header.php';
 </style>
 
 <?php endif; ?>
+
+
 
 <?php
 // Cargar Pie de Página

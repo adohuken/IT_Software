@@ -21,7 +21,12 @@ $empresas_list = $db->query("SELECT id, nombre FROM empresas ORDER BY nombre")->
 // Cargar listas correspondientes con joins para obtener el nombre de la empresa
 $cred_equipos_raw = $db->query("
     SELECT 
-        ce.*, 
+        ce.id as ce_id,
+        ce.usuario_local,
+        ce.password_cifrado,
+        ce.clave_bitlocker,
+        ce.notas_acceso,
+        e.id as equipo_id,
         e.tipo, 
         e.marca, 
         e.modelo, 
@@ -38,18 +43,20 @@ $cred_equipos_raw = $db->query("
         emp_comp_direct.id AS colaborador_empresa_id,
         COALESCE(emp.departamento, s.nombre, 'Sin Área') AS area_nombre,
         emp_comp.nombre AS empresa_nombre 
-    FROM credenciales_equipos ce 
-    JOIN equipos e ON ce.equipo_id = e.id 
+    FROM equipos e 
+    LEFT JOIN credenciales_equipos ce ON ce.equipo_id = e.id 
     LEFT JOIN asignaciones a ON a.equipo_id = e.id AND a.fecha_devolucion IS NULL
     LEFT JOIN empleados emp ON a.empleado_id = emp.id
     LEFT JOIN sucursales s ON s.id = COALESCE(emp.sucursal_id, e.sucursal_id)
     LEFT JOIN empresas emp_comp ON s.empresa_id = emp_comp.id
     LEFT JOIN empresas emp_comp_direct ON emp_comp_direct.nombre = emp.nombre AND emp.cargo = 'Empresa'
+    WHERE e.estado != 'De Baja'
     ORDER BY CASE WHEN emp.nombre IS NULL OR emp.nombre = '' THEN 1 ELSE 0 END, emp.nombre ASC, e.marca ASC, e.modelo ASC
 ")->fetchAll();
 
 $cred_equipos = [];
 foreach ($cred_equipos_raw as $ce) {
+    $ce['id'] = $ce['ce_id'];
     $ce['pass_plain'] = !empty($ce['password_cifrado']) ? Security::decrypt($ce['password_cifrado']) : '';
     $ce['bitlocker_plain'] = !empty($ce['clave_bitlocker']) ? Security::decrypt($ce['clave_bitlocker']) : '';
     $ce['equipos_lista'] = [$ce];
@@ -1677,7 +1684,8 @@ foreach ($fichas_raw as $f) {
             </div>
 
             <!-- Credenciales Locales -->
-            <div>
+            <!-- Credenciales Locales -->
+            <div id="dce_sec_credenciales">
                 <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
                     <i class="fa-solid fa-key text-amber-500"></i> Acceso y Credenciales Locales
                 </h4>
@@ -1711,7 +1719,7 @@ foreach ($fichas_raw as $f) {
             </div>
 
             <!-- Notas -->
-            <div>
+            <div id="dce_sec_notas">
                 <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Notas de
                     Acceso</span>
                 <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700 font-medium"
@@ -2199,9 +2207,17 @@ foreach ($fichas_raw as $f) {
 
     function verDetalleCredEquipo(ce) {
         currentEquiposLista = ce.equipos_lista || [ce];
-        const colaborador = ce.colaborador_nombre ? ce.colaborador_nombre : 'Sin Asignar';
-        const area = ce.area_nombre ? ce.area_nombre : 'Sin Área';
-        document.getElementById('dce_subtitulo').innerText = colaborador + ' · ' + area;
+        
+        const isSpecialType = ['impresora', 'control de acceso', 'ap', 'switch', 'servidor'].includes((ce.tipo || '').toLowerCase());
+        let colaboradorText = '';
+        if (isSpecialType) {
+            colaboradorText = 'Sucursal: ' + (ce.area_nombre || 'Sin Área');
+        } else {
+            const colaborador = ce.colaborador_nombre ? ce.colaborador_nombre : 'Sin Asignar';
+            const area = ce.area_nombre ? ce.area_nombre : 'Sin Área';
+            colaboradorText = colaborador + ' · ' + area;
+        }
+        document.getElementById('dce_subtitulo').innerText = colaboradorText;
 
         const tabsContainer = document.getElementById('dce_tabs_container');
         const tabsList = document.getElementById('dce_tabs_list');
@@ -2249,6 +2265,19 @@ foreach ($fichas_raw as $f) {
         document.getElementById('dce_pass').type = 'password';
         document.getElementById('dce_pass_icon').className = 'fa-solid fa-eye';
 
+        const isSpecialType = ['impresora', 'control de acceso', 'ap', 'switch', 'servidor'].includes(tipo.toLowerCase());
+        const credSec = document.getElementById('dce_sec_credenciales');
+        if (credSec) {
+            if (isSpecialType) credSec.classList.add('hidden');
+            else credSec.classList.remove('hidden');
+        }
+
+        const notasSec = document.getElementById('dce_sec_notas');
+        if (notasSec) {
+            if (isSpecialType) notasSec.classList.add('hidden');
+            else notasSec.classList.remove('hidden');
+        }
+
         const rowBit = document.getElementById('dce_row_bit');
         if (eq.bitlocker_plain && eq.bitlocker_plain.trim() !== '') {
             rowBit.classList.remove('hidden');
@@ -2263,7 +2292,16 @@ foreach ($fichas_raw as $f) {
     function abrirEditarCredEquipo(ce) {
         document.getElementById('ece_id').value = ce.id || '';
         document.getElementById('ece_equipo_id').value = ce.equipo_id || '';
-        document.getElementById('ece_colaborador').innerText = (ce.colaborador_nombre || 'Sin Asignar') + ' · ' + (ce.area_nombre || 'Sin Área');
+        
+        const isSpecialType = ['impresora', 'control de acceso', 'ap', 'switch', 'servidor'].includes((ce.tipo || '').toLowerCase());
+        let colaboradorText = '';
+        if (isSpecialType) {
+            colaboradorText = 'Sucursal: ' + (ce.area_nombre || 'Sin Área');
+        } else {
+            colaboradorText = (ce.colaborador_nombre || 'Sin Asignar') + ' · ' + (ce.area_nombre || 'Sin Área');
+        }
+        document.getElementById('ece_colaborador').innerText = colaboradorText;
+        
         document.getElementById('ece_usr').value = ce.usuario_local || '';
         document.getElementById('ece_pass').value = '';
         document.getElementById('ece_bitlocker').value = ce.bitlocker_plain || ce.clave_bitlocker || '';

@@ -132,13 +132,7 @@ if (!isset($_SESSION['user_id']) && $current_page !== 'login.php' && $current_pa
                 </div>
                 <?php endif; ?>
 
-                <div class="relative">
-                    <button class="h-10 w-10 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500 hover:text-cyan-500 transition shadow-sm">
-                        <i class="fa-regular fa-bell text-base"></i>
-                    </button>
-                    <!-- Alerta de notificaciones pendientes -->
-                    <span class="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center border-2 border-white">3</span>
-                </div>
+
                 
                 <a href="<?= BASE_URL ?>logout.php" class="h-10 px-4 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-rose-500 hover:border-rose-100 flex items-center gap-2 shadow-sm transition duration-200" title="Cerrar Sesión">
                     <i class="fa-solid fa-arrow-right-from-bracket text-xs"></i>
