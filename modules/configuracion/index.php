@@ -147,47 +147,48 @@ $tab_activa = $_GET['tab'] ?? 'todos';
         </div>
     </div>
 
-    <!-- Sección 2: Personalización & IA (2 Columnas Simétricas) -->
+    <!-- Sección 2: Ajustes y Mantenimiento -->
     <?php
     $flash_sys_ok = $_SESSION['flash_sys_ok'] ?? null;
     $flash_sys_err = $_SESSION['flash_sys_err'] ?? null;
     unset($_SESSION['flash_sys_ok'], $_SESSION['flash_sys_err']);
     ?>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-slate-200 pt-10">
-        <!-- Personalización de Marca -->
-        <div class="space-y-6 flex flex-col justify-between">
-            <div>
-                <h2 class="text-lg font-bold text-slate-800 tracking-tight">Personalización de Marca</h2>
-                <p class="text-xs text-slate-400">Modifica los detalles visuales y la identidad de la plataforma.</p>
+    <div class="space-y-6 border-t border-slate-200 pt-10">
+        <div>
+            <h2 class="text-lg font-bold text-slate-800 tracking-tight">Ajustes del Sistema y Mantenimiento</h2>
+            <p class="text-xs text-slate-400">Personaliza la plataforma y gestiona respaldos o reinicios de base de datos.</p>
+        </div>
+
+        <?php if ($flash_sys_ok): ?>
+            <div class="flex items-center gap-3 p-3.5 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl text-emerald-500 text-xs font-semibold w-full md:w-1/2">
+                <i class="fa-solid fa-circle-check text-[14px]"></i>
+                <span><?= htmlspecialchars($flash_sys_ok) ?></span>
             </div>
+        <?php endif; ?>
+        <?php if ($flash_sys_err): ?>
+            <div class="flex items-center gap-3 p-3.5 bg-rose-500/5 border border-rose-500/10 rounded-2xl text-rose-500 text-xs font-semibold w-full md:w-1/2">
+                <i class="fa-solid fa-circle-xmark text-[14px]"></i>
+                <span><?= htmlspecialchars($flash_sys_err) ?></span>
+            </div>
+        <?php endif; ?>
 
-            <?php if ($flash_sys_ok): ?>
-                <div class="flex items-center gap-3 p-3.5 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl text-emerald-500 text-xs font-semibold">
-                    <i class="fa-solid fa-circle-check text-[14px]"></i>
-                    <span><?= htmlspecialchars($flash_sys_ok) ?></span>
-                </div>
-            <?php endif; ?>
-            <?php if ($flash_sys_err): ?>
-                <div class="flex items-center gap-3 p-3.5 bg-rose-500/5 border border-rose-500/10 rounded-2xl text-rose-500 text-xs font-semibold">
-                    <i class="fa-solid fa-circle-xmark text-[14px]"></i>
-                    <span><?= htmlspecialchars($flash_sys_err) ?></span>
-                </div>
-            <?php endif; ?>
-
-            <div class="bg-white border border-slate-200 rounded-3xl p-6 h-full flex flex-col justify-between">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <!-- Personalización de Marca -->
+            <div class="bg-white border border-slate-200 rounded-3xl p-6 h-full flex flex-col justify-between hover:shadow-2xl hover:border-cyan-500/30 transition-all duration-300">
                 <form autocomplete="off" action="guardar_sistema.php" method="POST" class="space-y-5 flex-1 flex flex-col justify-between">
                     <div class="space-y-4">
                         <div class="flex items-center justify-between">
-                            <div class="h-10 w-10 rounded-2xl bg-cyan-500/5 border border-cyan-500/10 text-cyan-500 flex items-center justify-center text-lg">
+                            <div class="h-10 w-10 rounded-2xl bg-cyan-500/5 border border-cyan-500/10 text-cyan-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
                                 <i class="fa-solid fa-font"></i>
                             </div>
                             <span class="text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-cyan-500/5 text-cyan-600 border border-cyan-500/10">Marca</span>
                         </div>
                         <div>
+                            <h3 class="font-bold text-base text-slate-800 transition-colors mb-4">Personalización</h3>
                             <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Nombre de la Plataforma</label>
                             <input type="text" name="system_name" value="<?= htmlspecialchars($system_name) ?>" required
                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:border-cyan-500 transition">
-                            <p class="text-[9px] text-slate-400 mt-1.5">Este nombre aparecerá en la cabecera superior y en la pantalla de inicio de sesión.</p>
+                            <p class="text-[9px] text-slate-400 mt-1.5 leading-relaxed">Aparecerá en la cabecera superior y login.</p>
                         </div>
                     </div>
                     <button type="submit" class="mt-6 w-full py-2.5 rounded-xl bg-slate-900 hover:bg-cyan-500 hover:text-slate-900 text-white font-bold text-xs transition duration-300 flex items-center justify-center gap-1.5">
@@ -195,122 +196,6 @@ $tab_activa = $_GET['tab'] ?? 'todos';
                     </button>
                 </form>
             </div>
-        </div>
-
-        <!-- Asistente de IA (DeepSeek Config) -->
-        <?php
-        $ai_config_file = __DIR__ . '/../../config/ai_config.php';
-        $ai_api_key = '';
-        $ai_model   = 'deepseek-chat';
-        $ai_provider= 'deepseek';
-        $ai_status  = 'no_configurada';
-        if (file_exists($ai_config_file)) {
-            $ai_cfg = include $ai_config_file;
-            $ai_api_key = $ai_cfg['api_key'] ?? '';
-            $ai_model   = $ai_cfg['model'] ?? 'deepseek-chat';
-            $ai_provider= $ai_cfg['provider'] ?? 'deepseek';
-            $ai_status  = !empty($ai_api_key) ? 'configurada' : 'no_configurada';
-        }
-        $flash_ai_ok  = $_SESSION['flash_ai_ok'] ?? null;
-        $flash_ai_err = $_SESSION['flash_ai_err'] ?? null;
-        unset($_SESSION['flash_ai_ok'], $_SESSION['flash_ai_err']);
-        ?>
-
-        <div class="space-y-6 flex flex-col justify-between">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h2 class="text-lg font-bold text-slate-800 tracking-tight">Asistente de IA</h2>
-                    <p class="text-xs text-slate-400">Conecta el chatbot a modelos inteligentes.</p>
-                </div>
-                
-                <!-- Status Badge -->
-                <div class="flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-bold <?= $ai_status === 'configurada' ? 'bg-indigo-500/5 border-indigo-500/20 text-indigo-500' : 'bg-slate-100 border-slate-200 text-slate-400' ?>">
-                    <span class="h-1.5 w-1.5 rounded-full <?= $ai_status === 'configurada' ? 'bg-indigo-500 animate-pulse' : 'bg-slate-400' ?>"></span>
-                    <?= $ai_status === 'configurada' ? 'CONECTADO' : 'SIN CONFIGURAR' ?>
-                </div>
-            </div>
-
-            <?php if ($flash_ai_ok): ?>
-                <div class="flex items-center gap-3 p-3.5 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl text-emerald-500 text-xs font-semibold">
-                    <i class="fa-solid fa-circle-check text-[14px]"></i>
-                    <span><?= htmlspecialchars($flash_ai_ok) ?></span>
-                </div>
-            <?php endif; ?>
-            <?php if ($flash_ai_err): ?>
-                <div class="flex items-center gap-3 p-3.5 bg-rose-500/5 border border-rose-500/10 rounded-2xl text-rose-500 text-xs font-semibold">
-                    <i class="fa-solid fa-circle-xmark text-[14px]"></i>
-                    <span><?= htmlspecialchars($flash_ai_err) ?></span>
-                </div>
-            <?php endif; ?>
-
-            <div class="bg-white border border-slate-200 rounded-3xl p-6 h-full flex flex-col justify-between">
-                <form autocomplete="off" action="guardar_ai.php" method="POST" class="space-y-4 flex-1 flex flex-col justify-between">
-                    <div class="space-y-3">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Proveedor</label>
-                                <select autocomplete="off" name="provider" id="ai-provider" onchange="updateModels()" class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 transition">
-                                    <option value="deepseek" <?= $ai_provider === 'deepseek' ? 'selected' : '' ?>>DeepSeek (Recomendado)</option>
-                                    <option value="openai"   <?= $ai_provider === 'openai'   ? 'selected' : '' ?>>OpenAI</option>
-                                    <option value="groq"     <?= $ai_provider === 'groq'     ? 'selected' : '' ?>>Groq</option>
-                                    <option value="gemini"   <?= $ai_provider === 'gemini'   ? 'selected' : '' ?>>Google Gemini</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">API Key</label>
-                                <div class="relative">
-                                    <input type="password" name="api_key" id="ai-key-input"
-                                           value="<?= htmlspecialchars($ai_api_key) ?>"
-                                           placeholder="sk-xxxxxxxxxxxxxxxx"
-                                           class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-3 pr-10 text-xs text-slate-800 font-mono focus:outline-none focus:border-indigo-500 transition">
-                                    <button type="button" onclick="toggleKeyVisibility()" 
-                                            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-500 transition">
-                                        <i id="eye-icon" class="fa-solid fa-eye text-[12px]"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Modelo de IA</label>
-                            <select autocomplete="off" name="model" id="ai-model" data-selected="<?= htmlspecialchars($ai_model) ?>" class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:border-indigo-500 transition">
-                                <!-- Generado dinámicamente -->
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="pt-4 flex items-center gap-2.5 mt-auto">
-                        <button type="submit" class="flex-1 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-indigo-600 text-xs font-bold transition duration-300 flex items-center justify-center gap-1.5">
-                            <i class="fa-solid fa-floppy-disk text-[10px]"></i> Guardar Configuración
-                        </button>
-                        
-                        <?php if (!empty($ai_api_key)): ?>
-                        </form>
-                        <form autocomplete="off" action="guardar_ai.php" method="POST" class="inline shrink-0">
-                            <input type="hidden" name="api_key" value="">
-                            <input type="hidden" name="model" value="deepseek-chat">
-                            <input type="hidden" name="action" value="delete">
-                            <button type="submit" class="px-4 py-2.5 rounded-xl border border-rose-500/30 text-rose-500 hover:bg-rose-500/5 text-xs font-semibold transition flex items-center gap-1.5">
-                                <i class="fa-solid fa-trash-can text-[10px]"></i>
-                            </button>
-                        </form>
-                        <?php else: ?>
-                        </form>
-                        <?php endif; ?>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Sección 3: Mantenimiento (2 Columnas Simétricas) -->
-    <div class="space-y-6 border-t border-slate-200 pt-10">
-        <div>
-            <h2 class="text-lg font-bold text-slate-800 tracking-tight">Mantenimiento del Sistema</h2>
-            <p class="text-xs text-slate-400">Herramientas de respaldo preventivo y limpieza de la base de datos.</p>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             <!-- Backup -->
             <div class="bg-white border border-slate-200 rounded-3xl p-6 hover:border-emerald-500/20 transition-all duration-300 flex flex-col justify-between group">
                 <div class="space-y-4">
@@ -392,57 +277,6 @@ $tab_activa = $_GET['tab'] ?? 'todos';
 </div>
 
 <script>
-const modelsByProvider = {
-    'deepseek': [
-        { value: 'deepseek-chat', label: 'deepseek-chat (Recomendado)' },
-        { value: 'deepseek-reasoner', label: 'deepseek-reasoner' }
-    ],
-    'openai': [
-        { value: 'gpt-4o-mini', label: 'gpt-4o-mini (Recomendado)' },
-        { value: 'gpt-4o', label: 'gpt-4o' }
-    ],
-    'groq': [
-        { value: 'llama3-70b-8192', label: 'Llama 3 70B (Recomendado)' },
-        { value: 'llama3-8b-8192', label: 'Llama 3 8B' }
-    ],
-    'gemini': [
-        { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Recomendado)' },
-        { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' }
-    ]
-};
-
-function updateModels() {
-    const provider = document.getElementById('ai-provider').value;
-    const modelSelect = document.getElementById('ai-model');
-    const selectedModel = modelSelect.getAttribute('data-selected');
-    
-    modelSelect.innerHTML = '';
-    
-    if (modelsByProvider[provider]) {
-        modelsByProvider[provider].forEach(model => {
-            const option = document.createElement('option');
-            option.value = model.value;
-            option.textContent = model.label;
-            if (model.value === selectedModel) {
-                option.selected = true;
-            }
-            modelSelect.appendChild(option);
-        });
-    }
-}
-
-function toggleKeyVisibility() {
-    const input = document.getElementById('ai-key-input');
-    const icon  = document.getElementById('eye-icon');
-    if (input.type === 'password') {
-        input.type = 'text';
-        icon.className = 'fa-solid fa-eye-slash text-[12px]';
-    } else {
-        input.type = 'password';
-        icon.className = 'fa-solid fa-eye text-[12px]';
-    }
-}
-
 function updateFilename(input, elementId) {
     const file = input.files[0];
     const el = document.getElementById(elementId);
@@ -450,8 +284,6 @@ function updateFilename(input, elementId) {
         el.innerText = file.name;
     }
 }
-
-document.addEventListener('DOMContentLoaded', updateModels);
 </script>
 
 <!-- Libreria SheetJS para procesar Excel localmente -->
