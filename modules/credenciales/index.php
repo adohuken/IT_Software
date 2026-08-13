@@ -315,9 +315,13 @@ foreach ($fichas_raw as $f) {
     <!-- Encabezado de Página -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Gestión de Credenciales y Licencias</h2>
-            <p class="text-slate-500 text-sm">Almacén cifrado seguro para accesos locales, portales web y cuentas
-                Microsoft 365.</p>
+            <?php if ($tab === 'web'): ?>
+                <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Credenciales Web y Portales</h2>
+                <p class="text-slate-500 text-sm">Administración centralizada de accesos a portales web y plataformas externas.</p>
+            <?php else: ?>
+                <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Gestión de Credenciales y Licencias</h2>
+                <p class="text-slate-500 text-sm">Almacén cifrado seguro para accesos locales y cuentas Microsoft 365.</p>
+            <?php endif; ?>
         </div>
 
         <!-- Botones de Acción según Pestaña -->
@@ -342,14 +346,11 @@ foreach ($fichas_raw as $f) {
     </div>
 
     <!-- Pestañas (Tabs) de navegación de submódulos -->
+    <?php if ($tab !== 'web'): ?>
     <div class="border-b border-slate-200 flex gap-1 flex-wrap">
         <a href="?tab=equipos"
             class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'equipos') ? 'border-cyan-400 text-slate-800 bg-white/5 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
             <i class="fa-solid fa-desktop text-xs"></i> Credenciales de Equipos
-        </a>
-        <a href="?tab=web"
-            class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'web') ? 'border-cyan-400 text-slate-800 bg-white/5 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
-            <i class="fa-solid fa-globe text-xs"></i> Credenciales Web y Portales
         </a>
         <a href="?tab=m365"
             class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'm365') ? 'border-cyan-400 text-slate-800 bg-white/5 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
@@ -357,10 +358,10 @@ foreach ($fichas_raw as $f) {
         </a>
         <a href="?tab=fichas"
             class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'fichas') ? 'border-violet-500 text-slate-800 bg-white/5 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
-            <i class="fa-solid fa-id-card text-xs <?= ($tab === 'fichas') ? 'text-violet-600' : '' ?>"></i> Fichas
-            Consolidadas
+            <i class="fa-solid fa-id-card text-xs <?= ($tab === 'fichas') ? 'text-violet-600' : '' ?>"></i> Fichas Consolidadas
         </a>
     </div>
+    <?php endif; ?>
 
     <!-- Barra de Filtros Dinámicos (Persistente) -->
     <div

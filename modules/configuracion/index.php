@@ -9,7 +9,7 @@ require_once __DIR__ . '/../../includes/header.php';
 $tab_activa = $_GET['tab'] ?? 'todos';
 ?>
 
-<div class="max-w-7xl mx-auto space-y-10 pb-16 animate-fade-in">
+<div class="max-w-7xl mx-auto space-y-10 pb-16">
     <!-- Header Minimalista -->
     <div class="border-b border-slate-200 pb-6">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">

@@ -153,69 +153,7 @@ require_once __DIR__ . '/includes/header.php';
 <!-- DASHBOARD PREMIUM REDISEÑADO -->
 <div class="max-w-[1400px] mx-auto space-y-6 animate-fade-in-up">
 
-    <!-- Accesos Directos (Compactos) -->
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <!-- 1. Equipos -->
-        <a href="<?= BASE_URL ?>modules/equipos/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-violet-300 transition group">
-            <div class="h-10 w-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0 group-hover:bg-violet-600 group-hover:text-white transition-colors duration-300 shadow-inner">
-                <i class="fa-solid fa-server"></i>
-            </div>
-            <div>
-                <h3 class="font-bold text-sm text-slate-800 group-hover:text-violet-700 transition">Equipos</h3>
-                <p class="text-[11px] text-slate-400">Inventario</p>
-            </div>
-        </a>
-        <!-- 2. Credenciales -->
-        <a href="<?= BASE_URL ?>modules/credenciales/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-cyan-300 transition group">
-            <div class="h-10 w-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0 group-hover:bg-cyan-500 group-hover:text-white transition-colors duration-300 shadow-inner">
-                <i class="fa-solid fa-key"></i>
-            </div>
-            <div>
-                <h3 class="font-bold text-sm text-slate-800 group-hover:text-cyan-700 transition">Credenciales</h3>
-                <p class="text-[11px] text-slate-400">Accesos y M365</p>
-            </div>
-        </a>
-        <!-- 3. Colaboradores -->
-        <a href="<?= BASE_URL ?>modules/empleados/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-emerald-300 transition group">
-            <div class="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition-colors duration-300 shadow-inner">
-                <i class="fa-solid fa-users"></i>
-            </div>
-            <div>
-                <h3 class="font-bold text-sm text-slate-800 group-hover:text-emerald-700 transition">Colaboradores</h3>
-                <p class="text-[11px] text-slate-400">Personal activo</p>
-            </div>
-        </a>
-        <!-- 4. Tareas IT -->
-        <a href="<?= BASE_URL ?>modules/tareas/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-blue-300 transition group">
-            <div class="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors duration-300 shadow-inner">
-                <i class="fa-solid fa-list-check"></i>
-            </div>
-            <div>
-                <h3 class="font-bold text-sm text-slate-800 group-hover:text-blue-700 transition">Tareas IT</h3>
-                <p class="text-[11px] text-slate-400">Pendientes/Progreso</p>
-            </div>
-        </a>
-        <!-- 5. Usuarios IT -->
-        <a href="<?= BASE_URL ?>modules/usuarios/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-300 transition group">
-            <div class="h-10 w-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300 shadow-inner">
-                <i class="fa-solid fa-user-shield"></i>
-            </div>
-            <div>
-                <h3 class="font-bold text-sm text-slate-800 group-hover:text-indigo-700 transition">Usuarios IT</h3>
-                <p class="text-[11px] text-slate-400">Administradores</p>
-            </div>
-        </a>
-        <!-- 6. Configuración -->
-        <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="flex items-center gap-3 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-amber-300 transition group">
-            <div class="h-10 w-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 group-hover:bg-amber-500 group-hover:text-white transition-colors duration-300 shadow-inner">
-                <i class="fa-solid fa-sliders"></i>
-            </div>
-            <div>
-                <h3 class="font-bold text-sm text-slate-800 group-hover:text-amber-700 transition">Configuración</h3>
-                <p class="text-[11px] text-slate-400">Sistema y Ajustes</p>
-            </div>
-        </a>
-    </div>
+
 
     <!-- Top 4 KPIs -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

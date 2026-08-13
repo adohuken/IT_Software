@@ -590,7 +590,7 @@ if ($ver_historial_id > 0) {
                         <span class="text-[11px] text-slate-400 block font-semibold">Serie / Service Tag</span>
                         <span class="font-mono font-bold text-slate-800" id="det_sn">--</span>
                     </div>
-                    <div>
+                    <div id="det_ip_wrapper">
                         <span class="text-[11px] text-slate-400 block font-semibold">Dirección IP</span>
                         <span class="font-mono text-slate-800" id="det_ip">--</span>
                     </div>
@@ -729,7 +729,13 @@ if ($ver_historial_id > 0) {
         document.getElementById('det_marca_modelo').innerText = (eq.marca || '') + ' ' + (eq.modelo || '');
         document.getElementById('det_sn').innerText = eq.service_tag_sn || 'N/A';
         const isClientDevice = ['Laptop', 'Desktop', 'Celular'].includes(eq.tipo);
-        document.getElementById('det_ip').innerText = eq.ip_direccion || (isClientDevice ? 'No Aplica (DHCP)' : 'DHCP / Dinámica');
+        
+        if (isClientDevice) {
+            document.getElementById('det_ip_wrapper').classList.add('hidden');
+        } else {
+            document.getElementById('det_ip_wrapper').classList.remove('hidden');
+            document.getElementById('det_ip').innerText = eq.ip_direccion || 'DHCP / Dinámica';
+        }
         document.getElementById('det_sucursal').innerText = eq.sucursal_nombre || '--';
         document.getElementById('det_notas').innerText = eq.notas || 'Sin observaciones guardadas.';
         document.getElementById('det_registrado_por').innerText = eq.registrado_por || 'Sistema / Pre-existente';

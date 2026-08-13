@@ -81,40 +81,117 @@ if (!isset($_SESSION['user_id']) && $current_page !== 'login.php' && $current_pa
         .ts-dropdown .option.active { background-color: #ecfeff !important; color: #0891b2 !important; }
     </style>
 </head>
-<body class="bg-darkBase text-slate-800 min-h-screen">
+<body class="bg-darkBase text-slate-800 h-screen overflow-hidden flex">
 
-    <!-- CABECERA SUPERIOR (TOPBAR) -->
-    <?php
-    $iniciales = 'IT';
-    if (isset($_SESSION['user_nombre'])) {
-        $palabras = explode(' ', $_SESSION['user_nombre']);
-        $iniciales = '';
-        $iniciales .= isset($palabras[0]) ? strtoupper(substr($palabras[0], 0, 1)) : '';
-        $iniciales .= isset($palabras[1]) ? strtoupper(substr($palabras[1], 0, 1)) : '';
-        if (empty($iniciales)) $iniciales = 'IT';
-    }
-    ?>
-    <div class="min-h-screen flex flex-col">
-        <header class="h-20 px-8 flex items-center justify-between sticky top-0 z-20 bg-white border-b border-slate-200 shadow-sm shrink-0">
-            <!-- Izquierda: Logo y Branding -->
-            <div class="flex items-center gap-4">
-                <!-- Branding -->
-                <a href="<?= BASE_URL ?>index.php" class="flex items-center gap-3 select-none">
-                    <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xl shadow-lg shadow-cyan-500/20 shrink-0">
-                        <i class="fa-solid fa-server"></i>
-                    </div>
-                    <div>
-                        <h1 class="font-bold text-base text-slate-800 tracking-tight leading-none"><?= htmlspecialchars($system_name) ?></h1>
-                        <p class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1">Gestión Interna</p>
-                    </div>
-                </a>
-                
-                <span class="h-6 w-px bg-slate-200"></span>
-                
-                <!-- Título o Breadcrumb -->
-                <div>
-                    <h2 class="text-sm font-extrabold text-slate-700 tracking-tight"><?= $topbar_title ?></h2>
+    <!-- SIDEBAR PREMIUM -->
+    <aside class="w-[260px] bg-darkNav text-slate-300 shadow-2xl flex flex-col shrink-0 hidden md:flex relative overflow-hidden z-30">
+        <!-- Decoración trasera sutil (Glow) -->
+        <div class="absolute -top-24 -left-24 w-64 h-64 bg-cyan-500/20 rounded-full blur-[80px] pointer-events-none"></div>
+        <div class="absolute bottom-0 right-0 w-48 h-48 bg-blue-600/10 rounded-full blur-[60px] pointer-events-none"></div>
+
+        <!-- Branding (Logo) -->
+        <div class="h-24 flex items-center px-8 border-b border-white/5 shrink-0 relative z-10">
+            <a href="<?= BASE_URL ?>index.php" class="flex items-center gap-4 select-none group">
+                <div class="h-11 w-11 rounded-2xl bg-gradient-to-tr from-cyan-400 to-blue-500 flex items-center justify-center text-white text-xl shadow-[0_0_20px_rgba(6,182,212,0.4)] shrink-0 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                    <i class="fa-solid fa-network-wired"></i>
                 </div>
+                <div>
+                    <h1 class="font-extrabold text-lg text-white tracking-tight leading-none"><?= htmlspecialchars($system_name) ?></h1>
+                    <p class="text-[10px] text-cyan-400 font-bold uppercase tracking-[0.2em] mt-1.5 opacity-80">Gestión Interna</p>
+                </div>
+            </a>
+        </div>
+        
+        <!-- Menú de Navegación -->
+        <nav class="flex-1 overflow-y-auto custom-scrollbar px-4 py-6 space-y-2 relative z-10">
+            <p class="px-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-4 mt-2">Menú Principal</p>
+            
+            <a href="<?= BASE_URL ?>index.php" class="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 <?= $is_dashboard ? 'bg-gradient-to-r from-blue-600/20 to-cyan-500/10 text-white border border-white/10 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white hover:translate-x-1' ?>">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center <?= $is_dashboard ? 'bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-slate-800 text-slate-400' ?> transition-colors">
+                    <i class="fa-solid fa-chart-pie text-sm"></i>
+                </div>
+                <span class="font-semibold text-sm">Dashboard</span>
+            </a>
+            
+            <a href="<?= BASE_URL ?>modules/equipos/index.php" class="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 <?= (strpos($_SERVER['PHP_SELF'], '/equipos/') !== false) ? 'bg-gradient-to-r from-violet-600/20 to-fuchsia-500/10 text-white border border-white/10 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white hover:translate-x-1' ?>">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center <?= (strpos($_SERVER['PHP_SELF'], '/equipos/') !== false) ? 'bg-violet-500 text-white shadow-[0_0_15px_rgba(139,92,246,0.5)]' : 'bg-slate-800 text-slate-400' ?> transition-colors">
+                    <i class="fa-solid fa-server text-sm"></i>
+                </div>
+                <span class="font-semibold text-sm">Equipos</span>
+            </a>
+            
+            <?php 
+            $is_credenciales = strpos($_SERVER['PHP_SELF'], '/credenciales/') !== false && (!isset($_GET['tab']) || $_GET['tab'] !== 'web');
+            $is_cred_web = strpos($_SERVER['PHP_SELF'], '/credenciales/') !== false && isset($_GET['tab']) && $_GET['tab'] === 'web';
+            ?>
+            <a href="<?= BASE_URL ?>modules/credenciales/index.php" class="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 <?= $is_credenciales ? 'bg-gradient-to-r from-cyan-600/20 to-teal-500/10 text-white border border-white/10 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white hover:translate-x-1' ?>">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center <?= $is_credenciales ? 'bg-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.5)]' : 'bg-slate-800 text-slate-400' ?> transition-colors">
+                    <i class="fa-solid fa-key text-sm"></i>
+                </div>
+                <span class="font-semibold text-sm">Credenciales</span>
+            </a>
+            
+            <a href="<?= BASE_URL ?>modules/credenciales/index.php?tab=web" class="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 <?= $is_cred_web ? 'bg-gradient-to-r from-sky-600/20 to-blue-500/10 text-white border border-white/10 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white hover:translate-x-1' ?>">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center <?= $is_cred_web ? 'bg-sky-500 text-white shadow-[0_0_15px_rgba(14,165,233,0.5)]' : 'bg-slate-800 text-slate-400' ?> transition-colors">
+                    <i class="fa-solid fa-globe text-sm"></i>
+                </div>
+                <span class="font-semibold text-sm">Web y Portales</span>
+            </a>
+            
+            <a href="<?= BASE_URL ?>modules/empleados/index.php" class="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 <?= (strpos($_SERVER['PHP_SELF'], '/empleados/') !== false) ? 'bg-gradient-to-r from-emerald-600/20 to-green-500/10 text-white border border-white/10 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white hover:translate-x-1' ?>">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center <?= (strpos($_SERVER['PHP_SELF'], '/empleados/') !== false) ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)]' : 'bg-slate-800 text-slate-400' ?> transition-colors">
+                    <i class="fa-solid fa-users text-sm"></i>
+                </div>
+                <span class="font-semibold text-sm">Colaboradores</span>
+            </a>
+            
+            <a href="<?= BASE_URL ?>modules/tareas/index.php" class="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 <?= (strpos($_SERVER['PHP_SELF'], '/tareas/') !== false) ? 'bg-gradient-to-r from-blue-600/20 to-sky-500/10 text-white border border-white/10 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white hover:translate-x-1' ?>">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center <?= (strpos($_SERVER['PHP_SELF'], '/tareas/') !== false) ? 'bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]' : 'bg-slate-800 text-slate-400' ?> transition-colors">
+                    <i class="fa-solid fa-list-check text-sm"></i>
+                </div>
+                <span class="font-semibold text-sm">Tareas IT</span>
+            </a>
+            
+            <p class="px-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2 mt-6">Administración</p>
+            
+            <a href="<?= BASE_URL ?>modules/usuarios/index.php" class="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 <?= (strpos($_SERVER['PHP_SELF'], '/usuarios/') !== false) ? 'bg-gradient-to-r from-indigo-600/20 to-purple-500/10 text-white border border-white/10 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white hover:translate-x-1' ?>">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center <?= (strpos($_SERVER['PHP_SELF'], '/usuarios/') !== false) ? 'bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' : 'bg-slate-800 text-slate-400' ?> transition-colors">
+                    <i class="fa-solid fa-user-shield text-sm"></i>
+                </div>
+                <span class="font-semibold text-sm">Usuarios IT</span>
+            </a>
+            
+            <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 <?= (strpos($_SERVER['PHP_SELF'], '/configuracion/') !== false) ? 'bg-gradient-to-r from-amber-600/20 to-orange-500/10 text-white border border-white/10 shadow-inner' : 'text-slate-400 hover:bg-white/5 hover:text-white hover:translate-x-1' ?>">
+                <div class="w-8 h-8 rounded-xl flex items-center justify-center <?= (strpos($_SERVER['PHP_SELF'], '/configuracion/') !== false) ? 'bg-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.5)]' : 'bg-slate-800 text-slate-400' ?> transition-colors">
+                    <i class="fa-solid fa-sliders text-sm"></i>
+                </div>
+                <span class="font-semibold text-sm">Configuración</span>
+            </a>
+        </nav>
+        
+        <!-- Mini Footer Sidebar -->
+        <div class="p-4 border-t border-white/5 shrink-0 relative z-10 text-center">
+            <p class="text-[10px] text-slate-500">Gestión de TI &copy; <?= date('Y') ?></p>
+        </div>
+    </aside>
+
+    <!-- ÁREA PRINCIPAL -->
+    <div class="flex-1 flex flex-col min-w-0 bg-darkBase">
+        <!-- TOPBAR -->
+        <?php
+        $iniciales = 'IT';
+        if (isset($_SESSION['user_nombre'])) {
+            $palabras = explode(' ', $_SESSION['user_nombre']);
+            $iniciales = '';
+            $iniciales .= isset($palabras[0]) ? strtoupper(substr($palabras[0], 0, 1)) : '';
+            $iniciales .= isset($palabras[1]) ? strtoupper(substr($palabras[1], 0, 1)) : '';
+            if (empty($iniciales)) $iniciales = 'IT';
+        }
+        ?>
+        <header class="h-20 px-8 flex items-center justify-between sticky top-0 z-20 bg-white border-b border-slate-200 shadow-sm shrink-0">
+            <!-- Izquierda: Título o Breadcrumb -->
+            <div class="flex items-center gap-4">
+                <h2 class="text-lg font-extrabold text-slate-800 tracking-tight"><?= $topbar_title ?></h2>
             </div>
 
             <!-- Derecha: Perfil de Usuario Logueado, Notificaciones y Salir -->
