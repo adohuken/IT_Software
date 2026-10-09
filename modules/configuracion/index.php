@@ -76,7 +76,7 @@ $tab_activa = $_GET['tab'] ?? 'todos';
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <!-- Tarjeta: Importación Equipos -->
+            <!-- Tarjeta 1: Importación Equipos -->
             <div
                 class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-cyan-500/30 transition-all duration-300 flex flex-col justify-between group">
                 <div class="space-y-4">
@@ -86,20 +86,17 @@ $tab_activa = $_GET['tab'] ?? 'todos';
                             <i class="fa-solid fa-laptop-code"></i>
                         </div>
                         <span
-                            class="text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-cyan-500/5 text-cyan-600 border border-cyan-500/10">Equipos
-                            & Red</span>
+                            class="text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-cyan-500/5 text-cyan-600 border border-cyan-500/10">Hardware</span>
                     </div>
                     <div>
                         <h3 class="font-bold text-base text-slate-800 group-hover:text-cyan-600 transition-colors">
                             Equipos e Inventario Hardware</h3>
-                        <p class="text-xs text-slate-400 mt-1 leading-relaxed">Carga laptops, desktops, servidores,
-                            switches, APs y máquinas virtuales en lote.</p>
+                        <p class="text-xs text-slate-400 mt-1 leading-relaxed">Carga masiva de laptops, desktops, impresoras y asignaciones por colaborador.</p>
                     </div>
                 </div>
 
                 <form autocomplete="off" action="../equipos/guardar.php?action=import_csv&redirect=config" method="POST"
                     enctype="multipart/form-data" class="mt-8 space-y-4">
-                    <!-- Dropzone Minimalista -->
                     <div class="relative group/drop">
                         <input type="file" name="archivo_csv" accept=".csv, .xlsx, .xls" required
                             class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
@@ -108,16 +105,15 @@ $tab_activa = $_GET['tab'] ?? 'todos';
                             class="border border-dashed border-slate-200 rounded-2xl p-4 text-center group-hover/drop:border-cyan-400 transition bg-slate-50/50">
                             <i
                                 class="fa-solid fa-cloud-arrow-up text-slate-400 text-lg group-hover/drop:text-cyan-500 transition mb-1"></i>
-                            <p class="text-xs text-slate-500 font-medium" id="filename-equipos">Arrastra o selecciona tu
-                                archivo</p>
-                            <span class="text-visano[9px] text-slate-400">CSV, XLSX o XLS</span>
+                            <p class="text-xs text-slate-500 font-medium" id="filename-equipos">Arrastra o selecciona tu archivo</p>
+                            <span class="text-[9px] text-slate-400">CSV, XLSX o XLS</span>
                         </div>
                     </div>
 
                     <div class="flex items-center justify-between pt-2">
                         <a href="<?= BASE_URL ?>includes/plantilla.php?tipo=equipos"
                             class="text-xs font-bold text-cyan-500 hover:text-cyan-600 flex items-center gap-1.5 transition">
-                            <i class="fa-solid fa-download text-[10px]"></i> Descargar Plantilla
+                            <i class="fa-solid fa-download text-[10px]"></i> Plantilla Equipos
                         </a>
                         <button type="submit"
                             class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-cyan-500 hover:text-slate-900 shadow-md transition duration-300">
@@ -127,7 +123,54 @@ $tab_activa = $_GET['tab'] ?? 'todos';
                 </form>
             </div>
 
-            <!-- Tarjeta: Importación Personal -->
+            <!-- Tarjeta 2: Importación Infraestructura & Redes IP -->
+            <div
+                class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-blue-500/30 transition-all duration-300 flex flex-col justify-between group">
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div
+                            class="h-10 w-10 rounded-2xl bg-blue-500/5 border border-blue-500/10 text-blue-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
+                            <i class="fa-solid fa-network-wired"></i>
+                        </div>
+                        <span
+                            class="text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-blue-500/5 text-blue-600 border border-blue-500/10">Infraestructura IP</span>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-800 group-hover:text-blue-600 transition-colors">
+                            Infraestructura & Redes IP</h3>
+                        <p class="text-xs text-slate-400 mt-1 leading-relaxed">Carga masiva de Switches, Access Points (AP), Servidores Físicos/Virtuales, Firewalls y Racks con credenciales cifradas.</p>
+                    </div>
+                </div>
+
+                <form autocomplete="off" action="../infraestructura/guardar.php?action=import_infra_csv&redirect=config" method="POST"
+                    enctype="multipart/form-data" class="mt-8 space-y-4">
+                    <div class="relative group/drop">
+                        <input type="file" name="archivo_csv" accept=".csv, .xlsx, .xls" required
+                            class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            onchange="updateFilename(this, 'filename-infra')">
+                        <div
+                            class="border border-dashed border-slate-200 rounded-2xl p-4 text-center group-hover/drop:border-blue-400 transition bg-slate-50/50">
+                            <i
+                                class="fa-solid fa-cloud-arrow-up text-slate-400 text-lg group-hover/drop:text-blue-500 transition mb-1"></i>
+                            <p class="text-xs text-slate-500 font-medium" id="filename-infra">Arrastra o selecciona tu archivo</p>
+                            <span class="text-[9px] text-slate-400">CSV, XLSX o XLS</span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-2">
+                        <a href="<?= BASE_URL ?>includes/plantilla.php?tipo=infraestructura"
+                            class="text-xs font-bold text-blue-500 hover:text-blue-600 flex items-center gap-1.5 transition">
+                            <i class="fa-solid fa-download text-[10px]"></i> Plantilla Infraestructura
+                        </a>
+                        <button type="submit"
+                            class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-blue-600 hover:text-white shadow-md transition duration-300">
+                            Importar Redes IP
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Tarjeta 3: Importación Personal -->
             <div
                 class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-emerald-500/30 transition-all duration-300 flex flex-col justify-between group">
                 <div class="space-y-4">
@@ -142,14 +185,12 @@ $tab_activa = $_GET['tab'] ?? 'todos';
                     <div>
                         <h3 class="font-bold text-base text-slate-800 group-hover:text-emerald-600 transition-colors">
                             Personal y Colaboradores</h3>
-                        <p class="text-xs text-slate-400 mt-1 leading-relaxed">Carga masiva de colaboradores con
-                            sucursales, áreas, departamentos y cargos corporativos.</p>
+                        <p class="text-xs text-slate-400 mt-1 leading-relaxed">Carga masiva de colaboradores con sucursales, áreas, departamentos y cargos corporativos.</p>
                     </div>
                 </div>
 
                 <form autocomplete="off" action="../empleados/guardar.php?action=import_csv&redirect=config"
                     method="POST" enctype="multipart/form-data" class="mt-8 space-y-4">
-                    <!-- Dropzone Minimalista -->
                     <div class="relative group/drop">
                         <input type="file" name="archivo_csv" accept=".csv, .xlsx, .xls" required
                             class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
@@ -158,8 +199,7 @@ $tab_activa = $_GET['tab'] ?? 'todos';
                             class="border border-dashed border-slate-200 rounded-2xl p-4 text-center group-hover/drop:border-emerald-400 transition bg-slate-50/50">
                             <i
                                 class="fa-solid fa-cloud-arrow-up text-slate-400 text-lg group-hover/drop:text-emerald-500 transition mb-1"></i>
-                            <p class="text-xs text-slate-500 font-medium" id="filename-personal">Arrastra o selecciona
-                                tu archivo</p>
+                            <p class="text-xs text-slate-500 font-medium" id="filename-personal">Arrastra o selecciona tu archivo</p>
                             <span class="text-[9px] text-slate-400">CSV, XLSX o XLS</span>
                         </div>
                     </div>
@@ -167,11 +207,58 @@ $tab_activa = $_GET['tab'] ?? 'todos';
                     <div class="flex items-center justify-between pt-2">
                         <a href="<?= BASE_URL ?>includes/plantilla.php?tipo=empleados"
                             class="text-xs font-bold text-emerald-500 hover:text-emerald-600 flex items-center gap-1.5 transition">
-                            <i class="fa-solid fa-download text-[10px]"></i> Descargar Plantilla
+                            <i class="fa-solid fa-download text-[10px]"></i> Plantilla Personal
                         </a>
                         <button type="submit"
                             class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-emerald-500 hover:text-white shadow-md transition duration-300">
                             Importar Personal
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Tarjeta 4: Importación Bóveda IT & Accesos Web -->
+            <div
+                class="bg-white border border-slate-200 rounded-3xl p-6 hover:shadow-2xl hover:border-indigo-500/30 transition-all duration-300 flex flex-col justify-between group">
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div
+                            class="h-10 w-10 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 text-indigo-500 flex items-center justify-center text-lg transition-transform group-hover:scale-110 duration-300">
+                            <i class="fa-solid fa-vault"></i>
+                        </div>
+                        <span
+                            class="text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-indigo-500/5 text-indigo-600 border border-indigo-500/10">Bóveda Cifrada IT</span>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-base text-slate-800 group-hover:text-indigo-600 transition-colors">
+                            Bóveda de Accesos IT & Web</h3>
+                        <p class="text-xs text-slate-400 mt-1 leading-relaxed">Carga masiva de credenciales cifradas (AES-256) para portales web, routers, consolas cloud y servicios.</p>
+                    </div>
+                </div>
+
+                <form autocomplete="off" action="../infraestructura/guardar.php?action=import_web_csv&redirect=config"
+                    method="POST" enctype="multipart/form-data" class="mt-8 space-y-4">
+                    <div class="relative group/drop">
+                        <input type="file" name="archivo_csv" accept=".csv, .xlsx, .xls" required
+                            class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            onchange="updateFilename(this, 'filename-boveda')">
+                        <div
+                            class="border border-dashed border-slate-200 rounded-2xl p-4 text-center group-hover/drop:border-indigo-400 transition bg-slate-50/50">
+                            <i
+                                class="fa-solid fa-cloud-arrow-up text-slate-400 text-lg group-hover/drop:text-indigo-500 transition mb-1"></i>
+                            <p class="text-xs text-slate-500 font-medium" id="filename-boveda">Arrastra o selecciona tu archivo</p>
+                            <span class="text-[9px] text-slate-400">CSV, XLSX o XLS</span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-2">
+                        <a href="<?= BASE_URL ?>includes/plantilla.php?tipo=credenciales_web"
+                            class="text-xs font-bold text-indigo-500 hover:text-indigo-600 flex items-center gap-1.5 transition">
+                            <i class="fa-solid fa-download text-[10px]"></i> Plantilla Bóveda IT
+                        </a>
+                        <button type="submit"
+                            class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-indigo-600 hover:text-white shadow-md transition duration-300">
+                            Importar Bóveda IT
                         </button>
                     </div>
                 </form>

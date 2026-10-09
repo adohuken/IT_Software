@@ -314,11 +314,11 @@ try {
 
             while (($data = fgetcsv($handle, 0, $delimiter)) !== FALSE) {
                 if (empty($data) || (count($data) === 1 && trim($data[0]) === '')) continue;
-                if (isset($data[0]) && strpos(trim($data[0]), '#') === 0) continue;
+                $cell0 = trim($data[0] ?? '');
+                if (strpos($cell0, '#') === 0 || strpos($cell0, '---') === 0 || strpos($cell0, '=>') === 0 || stripos($cell0, 'INSTRUCCIONES') !== false) continue;
 
                 $nombre = trim($data[$colIdx['colaborador']] ?? '');
-                if (empty($nombre)) {
-                    $errores++;
+                if (empty($nombre) || strcasecmp($nombre, 'colaborador') === 0 || strpos($nombre, 'OBLIGATORIO') !== false || strpos($nombre, '=>') !== false) {
                     continue;
                 }
 
@@ -384,6 +384,35 @@ try {
                 }
                 if (!empty($correo) || !empty($passCorreoCifrado)) {
                     $stmt_cred->execute([$empleadoId, 'Correo Corporativo', $correo, $passCorreoCifrado]);
+
+                    if (!empty($correo)) {
+                        $licenciaTipo = 'Microsoft 365 Business Standard';
+                        if (strpos(strtolower($area ?? ''), 'geren') !== false || strpos(strtolower($cargo ?? ''), 'geren') !== false || strpos(strtolower($nombre), 'geren') !== false) {
+                            $licenciaTipo = 'Microsoft 365 Business Premium';
+                        }
+                        $fechaInit = date('Y-m-d');
+                        $fechaPago = date('Y-m-d', strtotime('+1 month'));
+                        $estadoM365 = ($estadoNormalizado === 'Inactivo') ? 'Suspendida' : 'Activa';
+
+                        $stmtCheckM365 = $db->prepare("SELECT id FROM cuentas_m365 WHERE correo = ?");
+                        $stmtCheckM365->execute([$correo]);
+                        $existingM365Id = $stmtCheckM365->fetchColumn();
+
+                        if ($existingM365Id) {
+                            $stmtUpM365 = $db->prepare("
+                                UPDATE cuentas_m365 
+                                SET empleado_id = ?, password_cifrado = COALESCE(?, password_cifrado), estado = ?
+                                WHERE id = ?
+                            ");
+                            $stmtUpM365->execute([$empleadoId, $passCorreoCifrado, $estadoM365, $existingM365Id]);
+                        } else {
+                            $stmtInsM365 = $db->prepare("
+                                INSERT INTO cuentas_m365 (empleado_id, correo, licencia_tipo, password_cifrado, fecha_inicializacion, ciclo_facturacion, fecha_proximo_pago, estado)
+                                VALUES (?, ?, ?, ?, ?, 'Mensual', ?, ?)
+                            ");
+                            $stmtInsM365->execute([$empleadoId, $correo, $licenciaTipo, $passCorreoCifrado, $fechaInit, $fechaPago, $estadoM365]);
+                        }
+                    }
                 }
                 if (!empty($pcPinCifrado)) {
                     $stmt_cred->execute([$empleadoId, 'PC PIN', null, $pcPinCifrado]);

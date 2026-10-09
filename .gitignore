@@ -9,3 +9,5 @@ Thumbs.db
 # Archivos temporales o backups
 *.bak
 *.swp
+scratch/
+

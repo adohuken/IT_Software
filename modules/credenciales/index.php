@@ -9,6 +9,29 @@ require_once __DIR__ . '/../../config/security.php';
 
 $db = Database::getConexion();
 
+// Auto-sincronizar correos corporativos de credenciales_personales hacia cuentas_m365 si aún no existen
+$db->exec("
+    INSERT IGNORE INTO cuentas_m365 (empleado_id, correo, licencia_tipo, password_cifrado, fecha_inicializacion, ciclo_facturacion, fecha_proximo_pago, estado)
+    SELECT 
+        cp.empleado_id,
+        cp.usuario AS correo,
+        CASE 
+            WHEN LOWER(COALESCE(e.cargo, '')) LIKE '%geren%' OR LOWER(COALESCE(e.departamento, '')) LIKE '%geren%' THEN 'Microsoft 365 Business Premium'
+            ELSE 'Microsoft 365 Business Standard'
+        END AS licencia_tipo,
+        cp.password_cifrado,
+        CURRENT_DATE() AS fecha_inicializacion,
+        'Mensual' AS ciclo_facturacion,
+        DATE_ADD(CURRENT_DATE(), INTERVAL 1 MONTH) AS fecha_proximo_pago,
+        CASE WHEN e.estado = 'Inactivo' THEN 'Suspendida' ELSE 'Activa' END AS estado
+    FROM credenciales_personales cp
+    JOIN empleados e ON cp.empleado_id = e.id
+    WHERE cp.tipo = 'Correo Corporativo' 
+      AND cp.usuario IS NOT NULL 
+      AND TRIM(cp.usuario) != ''
+      AND cp.usuario NOT IN (SELECT correo FROM cuentas_m365 WHERE correo IS NOT NULL)
+");
+
 // Determinar pestaña activa
 $tab = $_GET['tab'] ?? 'equipos';
 
@@ -510,6 +533,20 @@ foreach ($fichas_raw as $f) {
 
         <!-- 2. TABLA CREDENCIALES WEB -->
     <?php elseif ($tab === 'web'): ?>
+        <div class="mb-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 rounded-2xl shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="h-10 w-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-lg shrink-0">
+                    <i class="fa-solid fa-network-wired"></i>
+                </div>
+                <div>
+                    <h4 class="font-black text-sm">Bóveda Cifrada de Accesos IT & Redes</h4>
+                    <p class="text-xs text-blue-100">Las credenciales administrativas de portales web y equipos de red cuentan con su propio módulo independiente estructurado.</p>
+                </div>
+            </div>
+            <a href="<?= BASE_URL ?>modules/infraestructura/index.php?tab=boveda" class="px-4 py-2 rounded-xl bg-white text-blue-700 font-bold text-xs shadow-md hover:bg-blue-50 transition shrink-0 inline-flex items-center gap-2">
+                <i class="fa-solid fa-vault"></i> Ir al Módulo de Infraestructura & Redes <i class="fa-solid fa-arrow-right text-[10px]"></i>
+            </a>
+        </div>
         <div class="glass-panel rounded-2xl overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="w-full text-left modern-table text-sm">

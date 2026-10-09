@@ -13,9 +13,22 @@ $db = Database::getConexion();
 $filtro_sucursal = $_GET['sucursal_id'] ?? '';
 $filtro_depto = $_GET['departamento'] ?? '';
 
-// Cargar catálogos para filtros y formularios
-$sucursales = $db->query("SELECT * FROM sucursales ORDER BY nombre")->fetchAll();
-$departamentos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE departamento IS NOT NULL ORDER BY departamento")->fetchAll();
+// Cargar catálogos limpios y agrupados por Empresa para filtros
+$sucursales = $db->query("
+    SELECT s.id, s.nombre, e.nombre as empresa_nombre 
+    FROM sucursales s 
+    JOIN empresas e ON s.empresa_id = e.id 
+    WHERE s.id IN (SELECT DISTINCT sucursal_id FROM equipos WHERE sucursal_id IS NOT NULL)
+    ORDER BY e.nombre, s.nombre
+")->fetchAll();
+
+$departamentos = $db->query("
+    SELECT DISTINCT departamento 
+    FROM empleados 
+    WHERE departamento IS NOT NULL AND departamento != '' AND departamento != 'General'
+    ORDER BY departamento
+")->fetchAll();
+
 $empleados = $db->query("SELECT id, nombre, cargo, departamento FROM empleados WHERE estado = 'Activo' ORDER BY nombre")->fetchAll();
 
 // Construir consulta filtrada de equipos con datos completos de credenciales y asignación
@@ -92,7 +105,16 @@ if ($ver_historial_id > 0) {
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
             <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Inventario y Asignación de Hardware</h2>
-            <p class="text-slate-500 text-sm">Control de equipos de red, servidores, computadoras corporativas y asignaciones.</p>
+            <p class="text-slate-500 text-sm">Control de computadoras corporativas, servidores, dispositivos de red (IP, Switches, APs) y asignaciones.</p>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button onclick="abrirNuevoEquipo('Infraestructura')" class="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold transition shadow-md shadow-cyan-500/20 flex items-center gap-2">
+                <i class="fa-solid fa-network-wired"></i> + Registrar Equipo IP / Red (Switch, AP, Server)
+            </button>
+            <button onclick="abrirNuevoEquipo('PC')" class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-md flex items-center gap-2">
+                <i class="fa-solid fa-plus"></i> + Nuevo Equipo
+            </button>
         </div>
     </div>
 
@@ -110,16 +132,25 @@ if ($ver_historial_id > 0) {
             </div>
             <div class="flex-1">
                 <label for="f_suc" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Filtrar por Sucursal</label>
-                <select autocomplete="off" name="sucursal_id" id="f_suc" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer">
+                <select autocomplete="off" name="sucursal_id" id="f_suc" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer font-medium">
                     <option value="">-- Todas las Sucursales --</option>
-                    <?php foreach ($sucursales as $s): ?>
+                    <?php 
+                    $currentEmp = null;
+                    foreach ($sucursales as $s): 
+                        if ($currentEmp !== $s['empresa_nombre']):
+                            if ($currentEmp !== null) echo '</optgroup>';
+                            $currentEmp = $s['empresa_nombre'];
+                            echo '<optgroup label="🏢 ' . htmlspecialchars($currentEmp) . '">';
+                        endif;
+                    ?>
                         <option value="<?= $s['id'] ?>" <?= ($filtro_sucursal == $s['id']) ? 'selected' : '' ?>><?= htmlspecialchars($s['nombre']) ?></option>
                     <?php endforeach; ?>
+                    <?php if ($currentEmp !== null) echo '</optgroup>'; ?>
                 </select>
             </div>
             <div class="flex-1">
                 <label for="f_dep" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Filtrar por Departamento</label>
-                <select autocomplete="off" name="departamento" id="f_dep" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer">
+                <select autocomplete="off" name="departamento" id="f_dep" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer font-medium">
                     <option value="">-- Todos los Departamentos --</option>
                     <?php foreach ($departamentos as $d): ?>
                         <option value="<?= htmlspecialchars($d['departamento']) ?>" <?= ($filtro_depto === $d['departamento']) ? 'selected' : '' ?>><?= htmlspecialchars($d['departamento']) ?></option>
@@ -245,21 +276,26 @@ if ($ver_historial_id > 0) {
         <div class="overflow-x-auto">
             <table class="w-full text-left modern-table text-sm">
                 <thead>
-                    <tr>
-                        <th class="py-3 px-3 text-center w-12">#</th>
-                        <th class="py-3 px-4">Código / Tipo</th>
-                        <th class="py-3 px-4">Descripción del Activo</th>
-                        <th class="py-3 px-4">Identificación</th>
-                        <th class="py-3 px-4">IP / Ubicación</th>
-                        <th class="py-3 px-4">Asignado a</th>
-                        <th class="py-3 px-4">Estado</th>
-                        <th class="py-3 px-4 text-center">Acciones</th>
+                    <tr class="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        <th class="py-3.5 px-3 text-center w-12">#</th>
+                        <th class="py-3.5 px-4">Sucursal</th>
+                        <th class="py-3.5 px-4">Colaborador</th>
+                        <th class="py-3.5 px-4">Área</th>
+                        <th class="py-3.5 px-4">Equipo</th>
+                        <th class="py-3.5 px-4">Marca</th>
+                        <th class="py-3.5 px-4">Modelo</th>
+                        <th class="py-3.5 px-4">Serie (S/N)</th>
+                        <th class="py-3.5 px-4">Procesador</th>
+                        <th class="py-3.5 px-4">Disco</th>
+                        <th class="py-3.5 px-4">RAM</th>
+                        <th class="py-3.5 px-4 text-center">Estado</th>
+                        <th class="py-3.5 px-4 text-center">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($equipos)): ?>
                         <tr>
-                            <td colspan="8" class="text-center py-10 text-slate-400">
+                            <td colspan="13" class="text-center py-10 text-slate-400">
                                 No se encontraron equipos en inventario bajo estos filtros.
                             </td>
                         </tr>
@@ -275,54 +311,98 @@ if ($ver_historial_id > 0) {
                         ?>
                             <tr class="hover:bg-cyan-50/60 cursor-pointer transition border-b border-slate-100 group" onclick='verDetalleEquipo(<?= json_encode($eq, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                                 <!-- # Numeración -->
-                                <td class="py-4 px-3 text-center text-xs font-mono font-bold text-slate-400 group-hover:text-cyan-600">
+                                <td class="py-3.5 px-3 text-center text-xs font-mono font-bold text-slate-400 group-hover:text-cyan-600">
                                     <?= $num_inv++ ?>
                                 </td>
-                                <td class="py-4 px-4">
-                                    <div class="font-bold text-slate-800 group-hover:text-cyan-700 transition flex items-center gap-1.5">
-                                        <i class="fa-solid fa-laptop text-xs text-slate-400 group-hover:text-cyan-600"></i>
-                                        <?= htmlspecialchars($eq['tipo']) ?>
-                                    </div>
-                                    <span class="text-[10px] text-slate-400 font-mono">ID: #<?= $eq['id'] ?></span>
+
+                                <!-- Sucursal -->
+                                <td class="py-3.5 px-4 text-xs font-semibold text-slate-700">
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 font-medium">
+                                        <i class="fa-solid fa-building text-cyan-600 text-[10px]"></i>
+                                        <?= htmlspecialchars($eq['sucursal_nombre']) ?>
+                                    </span>
                                 </td>
-                                <td class="py-4 px-4">
-                                    <div class="font-semibold text-slate-700"><?= htmlspecialchars($eq['marca'] . ' ' . $eq['modelo']) ?></div>
-                                    <div class="text-[11px] text-slate-400 max-w-[200px] truncate" title="<?= htmlspecialchars($eq['notas'] ?? '') ?>">
-                                        <?= htmlspecialchars($eq['notas'] ?? 'Sin descripción') ?>
+
+                                <!-- Colaborador -->
+                                <td class="py-3.5 px-4 text-xs font-semibold text-slate-800">
+                                    <?php if (!empty($eq['empleado_nombre'])): ?>
+                                        <div class="flex items-center gap-1.5">
+                                            <i class="fa-regular fa-user text-slate-400 text-[11px]"></i>
+                                            <?= htmlspecialchars($eq['empleado_nombre']) ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <span class="text-slate-400 italic">Sin Asignar</span>
+                                    <?php endif; ?>
+                                </td>
+
+                                <!-- Área -->
+                                <td class="py-3.5 px-4 text-xs text-slate-600 font-medium">
+                                    <?= htmlspecialchars(!empty($eq['empleado_depto']) ? $eq['empleado_depto'] : $eq['sucursal_nombre']) ?>
+                                </td>
+
+                                <!-- Equipo (Tipo) & IP -->
+                                <td class="py-3.5 px-4 text-xs font-bold text-slate-800">
+                                    <div class="flex flex-col gap-1">
+                                        <span class="inline-flex items-center gap-1.5">
+                                            <?php
+                                            $tUpper = strtoupper(trim($eq['tipo']));
+                                            if ($tUpper === 'IMPRESORA') echo '<i class="fa-solid fa-print text-purple-500 text-xs"></i>';
+                                            elseif ($tUpper === 'DESKTOP') echo '<i class="fa-solid fa-desktop text-blue-500 text-xs"></i>';
+                                            elseif ($tUpper === 'SWITCH' || $tUpper === 'AP' || $tUpper === 'ACCESS POINT' || $tUpper === 'FIREWALL') echo '<i class="fa-solid fa-network-wired text-amber-500 text-xs"></i>';
+                                            elseif ($tUpper === 'SERVIDOR') echo '<i class="fa-solid fa-server text-indigo-500 text-xs"></i>';
+                                            elseif ($tUpper === 'OTRO') echo '<i class="fa-solid fa-plug text-emerald-500 text-xs"></i>';
+                                            else echo '<i class="fa-solid fa-laptop text-cyan-500 text-xs"></i>';
+                                            ?>
+                                            <?= htmlspecialchars($eq['tipo']) ?>
+                                        </span>
+                                        <?php if (!empty($eq['ip_direccion'])): ?>
+                                            <span class="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-slate-900 text-cyan-400 px-2 py-0.5 rounded border border-slate-700 w-max" title="Dirección IP de Red">
+                                                <i class="fa-solid fa-network-wired text-[9px]"></i> <?= htmlspecialchars($eq['ip_direccion']) ?>
+                                            </span>
+                                        <?php endif; ?>
                                     </div>
                                 </td>
-                                <td class="py-4 px-4 font-mono text-xs text-slate-700 font-bold">
+
+                                <!-- Marca -->
+                                <td class="py-3.5 px-4 text-xs text-slate-700 font-medium">
+                                    <?= htmlspecialchars($eq['marca']) ?>
+                                </td>
+
+                                <!-- Modelo -->
+                                <td class="py-3.5 px-4 text-xs text-slate-700 font-mono">
+                                    <?= htmlspecialchars($eq['modelo']) ?>
+                                </td>
+
+                                <!-- Serie -->
+                                <td class="py-3.5 px-4 text-xs font-mono font-bold text-slate-700 select-all">
                                     <?= htmlspecialchars($eq['service_tag_sn']) ?>
                                 </td>
-                                <td class="py-4 px-4 text-xs text-slate-600">
-                                    <?php 
-                                    $show_dhcp = !in_array($eq['tipo'], ['Laptop', 'Desktop', 'Celular']);
-                                    $ip_text = $eq['ip_direccion'] ?? ($show_dhcp ? 'DHCP / Dinámica' : '');
-                                    if ($ip_text !== ''): 
-                                    ?>
-                                        <div><?= htmlspecialchars($ip_text) ?></div>
-                                    <?php endif; ?>
-                                    <span class="text-[10px] text-slate-400"><?= htmlspecialchars($eq['sucursal_nombre']) ?></span>
+
+                                <!-- Procesador -->
+                                <td class="py-3.5 px-4 text-xs text-slate-500 max-w-[120px] truncate" title="<?= htmlspecialchars($eq['procesador'] ?? '') ?>">
+                                    <?= htmlspecialchars($eq['procesador'] ?: '-') ?>
                                 </td>
-                                <td class="py-4 px-4 text-xs">
-                                    <?php if (!empty($eq['empleado_nombre'])): ?>
-                                        <div class="font-semibold text-slate-800"><?= htmlspecialchars($eq['empleado_nombre']) ?></div>
-                                        <div class="text-[10px] text-slate-400"><?= htmlspecialchars($eq['empleado_depto']) ?></div>
-                                    <?php else: ?>
-                                        <?php if (in_array($eq['tipo'], ['Impresora', 'Switch', 'AP', 'Control de acceso', 'Servidor'])): ?>
-                                            <span class="font-semibold text-slate-600"><i class="fa-solid fa-location-dot mr-1 text-slate-400"></i><?= htmlspecialchars($eq['sucursal_nombre']) ?></span>
-                                        <?php else: ?>
-                                            <span class="text-slate-400 italic">No asignado</span>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
+
+                                <!-- Disco -->
+                                <td class="py-3.5 px-4 text-xs text-slate-500 font-mono">
+                                    <?= htmlspecialchars($eq['disco'] ?: '-') ?>
                                 </td>
-                                <td class="py-4 px-4">
+
+                                <!-- RAM -->
+                                <td class="py-3.5 px-4 text-xs text-slate-500 font-mono">
+                                    <?= htmlspecialchars($eq['ram'] ?: '-') ?>
+                                </td>
+
+                                <!-- Estado -->
+                                <td class="py-3.5 px-4 text-center">
                                     <span class="px-2.5 py-1 rounded-full text-[10px] font-bold <?= $badge ?>">
                                         <?= $eq['estado'] ?>
                                     </span>
                                 </td>
-                                <td class="py-4 px-4">
-                                    <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
+
+                                <!-- Acciones -->
+                                <td class="py-3.5 px-4 text-center" onclick="event.stopPropagation();">
+                                    <div class="flex items-center justify-center gap-1">
                                         <?php $isInfra = in_array($eq['tipo'], ['Impresora', 'Switch', 'AP', 'Control de acceso', 'Servidor']); ?>
                                         
                                         <?php if (!$isInfra): ?>

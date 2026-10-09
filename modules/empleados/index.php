@@ -83,7 +83,7 @@ if ($details_id > 0) {
 }
 
 $sql_empleados = "
-    SELECT emp.*, s.nombre AS sucursal_nombre,
+    SELECT emp.*, s.nombre AS sucursal_nombre, e_corp.nombre AS empresa_nombre,
            (SELECT COUNT(*) FROM asignaciones WHERE empleado_id = emp.id AND fecha_devolucion IS NULL) AS cant_equipos,
            (SELECT GROUP_CONCAT(CONCAT(eq.id, ':', eq.tipo, ' - ', eq.marca, ' ', eq.modelo, ' (S/N: ', eq.service_tag_sn, ')') SEPARATOR '|') 
             FROM asignaciones a JOIN equipos eq ON a.equipo_id = eq.id 
@@ -100,6 +100,7 @@ $sql_empleados = "
            (SELECT password_cifrado FROM credenciales_personales WHERE empleado_id = emp.id AND tipo = 'Gmail' LIMIT 1) AS password_gmail_cifrado
     FROM empleados emp
     JOIN sucursales s ON emp.sucursal_id = s.id
+    JOIN empresas e_corp ON s.empresa_id = e_corp.id
     WHERE emp.estado = 'Activo'
     ORDER BY emp.nombre ASC
 ";
@@ -112,10 +113,16 @@ foreach ($empleados as &$eRow) {
 }
 unset($eRow);
 
-// 2. Cargar catálogos para el modal
-$sucursales = $db->query("SELECT * FROM sucursales ORDER BY nombre")->fetchAll();
+// 2. Cargar catálogos agrupados por Empresa para los filtros
 $empresas = $db->query("SELECT * FROM empresas ORDER BY nombre")->fetchAll();
+$sucursales_raw = $db->query("
+    SELECT s.*, e.nombre AS empresa_nombre 
+    FROM sucursales s 
+    JOIN empresas e ON s.empresa_id = e.id 
+    ORDER BY e.nombre, s.nombre
+")->fetchAll();
 $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_sn FROM equipos WHERE estado = 'Disponible' ORDER BY tipo, marca")->fetchAll();
+$list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE departamento IS NOT NULL AND departamento != '' ORDER BY departamento")->fetchAll(PDO::FETCH_COLUMN);
 ?>
 
 <div class="space-y-6">
@@ -132,10 +139,95 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
         </div>
     </div>
 
+    <!-- PANEL DE FILTROS ROBUSTO DE NIVELES ORGANIZACIONALES -->
+    <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                <i class="fa-solid fa-filter text-emerald-500 text-sm"></i> Filtros por Empresa, Sucursal y Área
+            </h3>
+            <button onclick="limpiarFiltros()" class="text-xs text-rose-500 hover:text-rose-700 font-bold flex items-center gap-1 transition">
+                <i class="fa-solid fa-arrow-rotate-left"></i> Limpiar Filtros
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <!-- 1. Buscador General por Texto -->
+            <div class="lg:col-span-1 relative">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Buscador General</label>
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+                    <input type="text" id="filterText" oninput="aplicarFiltros()" placeholder="Nombre, serial..." class="w-full pl-8 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 font-medium focus:outline-none focus:border-emerald-500 focus:bg-white transition">
+                </div>
+            </div>
+
+            <!-- 2. Filtro por Empresa -->
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Empresa</label>
+                <select id="filterEmpresa" onchange="aplicarFiltros()" class="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500 transition">
+                    <option value="">-- Todas las Empresas --</option>
+                    <?php foreach ($empresas as $emp_c): ?>
+                        <option value="<?= htmlspecialchars($emp_c['nombre']) ?>"><?= htmlspecialchars($emp_c['nombre']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <!-- 3. Filtro por Sucursal (Agrupado en Optgroup sin duplicados) -->
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sucursal / Sede</label>
+                <select id="filterSucursal" onchange="aplicarFiltros()" class="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500 transition">
+                    <option value="">-- Todas las Sucursales --</option>
+                    <?php 
+                    $curr_emp = '';
+                    foreach ($sucursales_raw as $suc):
+                        if ($suc['empresa_nombre'] !== $curr_emp):
+                            if ($curr_emp !== '') echo '</optgroup>';
+                            $curr_emp = $suc['empresa_nombre'];
+                            echo '<optgroup label="' . htmlspecialchars($curr_emp) . '">';
+                        endif;
+                    ?>
+                        <option value="<?= htmlspecialchars($suc['nombre']) ?>" data-empresa="<?= htmlspecialchars($suc['empresa_nombre']) ?>">
+                            <?= htmlspecialchars($suc['nombre']) ?>
+                        </option>
+                    <?php endforeach; 
+                    if ($curr_emp !== '') echo '</optgroup>';
+                    ?>
+                </select>
+            </div>
+
+            <!-- 4. Filtro por Departamento -->
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Área / Departamento</label>
+                <select id="filterDepto" onchange="aplicarFiltros()" class="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500 transition">
+                    <option value="">-- Todos los Departamentos --</option>
+                    <?php foreach ($list_deptos as $dep): ?>
+                        <option value="<?= htmlspecialchars($dep) ?>"><?= htmlspecialchars($dep) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <!-- 5. Filtro por Estado de Recursos -->
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Recursos Vinculados</label>
+                <select id="filterRecursos" onchange="aplicarFiltros()" class="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500 transition">
+                    <option value="">-- Todos los Recursos --</option>
+                    <option value="con_equipo">Con Equipo Asignado</option>
+                    <option value="sin_equipo">Sin Equipo Asignado</option>
+                    <option value="con_m365">Con Cuenta M365</option>
+                    <option value="sin_m365">Sin Cuenta M365</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Indicador Contador -->
+        <div class="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
+            <span>Mostrando <strong id="countVisibles" class="text-emerald-600 font-bold"><?= count($empleados) ?></strong> de <strong class="text-slate-800"><?= count($empleados) ?></strong> colaboradores</span>
+        </div>
+    </div>
+
     <!-- Tabla General de Personal y Recursos -->
     <div class="glass-panel rounded-2xl overflow-hidden">
         <div class="overflow-x-auto">
-            <table class="w-full text-left modern-table text-sm">
+            <table class="w-full text-left modern-table text-sm" id="tablaEmpleados">
                 <thead>
                     <tr>
                         <th class="py-3 px-4">Colaborador</th>
@@ -155,7 +247,14 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
                         </tr>
                     <?php else: ?>
                         <?php foreach ($empleados as $emp): ?>
-                            <tr class="hover:bg-emerald-50/60 cursor-pointer transition border-b border-slate-100 group" onclick='verDetalleEmpleado(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
+                            <tr class="hover:bg-emerald-50/60 cursor-pointer transition border-b border-slate-100 group" 
+                                data-search="<?= htmlspecialchars(strtolower($emp['nombre'] . ' ' . ($emp['cargo'] ?? '') . ' ' . ($emp['departamento'] ?? '') . ' ' . $emp['empresa_nombre'] . ' ' . $emp['sucursal_nombre'] . ' ' . ($emp['equipo_vinculado'] ?? '') . ' ' . ($emp['correo_m365'] ?? ''))) ?>"
+                                data-empresa="<?= htmlspecialchars(strtolower($emp['empresa_nombre'])) ?>"
+                                data-sucursal="<?= htmlspecialchars(strtolower($emp['sucursal_nombre'])) ?>"
+                                data-depto="<?= htmlspecialchars(strtolower($emp['departamento'] ?? '')) ?>"
+                                data-equipos="<?= (int)$emp['cant_equipos'] ?>"
+                                data-m365="<?= !empty($emp['correo_m365']) ? 'true' : 'false' ?>"
+                                onclick='verDetalleEmpleado(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                                 <td class="py-4 px-4 font-bold text-slate-800 group-hover:text-emerald-700 transition flex items-center gap-2">
                                     <div class="h-8 w-8 rounded-full bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-700 text-xs font-bold shrink-0">
                                         <?= strtoupper(substr($emp['nombre'], 0, 1)) ?>
@@ -1109,6 +1208,73 @@ $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_s
         document.getElementById('modal-nueva-sucursal').classList.add('hidden');
         document.getElementById('ns_nombre').value = '';
         _sucSelectOrigin = null;
+    }
+
+    // ========================================================
+    // LÓGICA DE FILTRADO ROBUSTO EN TIEMPO REAL
+    // ========================================================
+    function aplicarFiltros() {
+        const textQuery = (document.getElementById('filterText').value || '').toLowerCase().trim();
+        const empresaVal = (document.getElementById('filterEmpresa').value || '').toLowerCase().trim();
+        const sucursalVal = (document.getElementById('filterSucursal').value || '').toLowerCase().trim();
+        const deptoVal = (document.getElementById('filterDepto').value || '').toLowerCase().trim();
+        const recursosVal = document.getElementById('filterRecursos').value;
+
+        // Filtrar dinámicamente las opciones del select de sucursales según la empresa seleccionada
+        const sucursalSelect = document.getElementById('filterSucursal');
+        if (sucursalSelect) {
+            const optgroups = sucursalSelect.querySelectorAll('optgroup');
+            optgroups.forEach(group => {
+                const label = (group.getAttribute('label') || '').toLowerCase();
+                if (!empresaVal || label.includes(empresaVal)) {
+                    group.style.display = '';
+                } else {
+                    group.style.display = 'none';
+                }
+            });
+        }
+
+        const rows = document.querySelectorAll('#tablaEmpleados tbody tr');
+        let visibles = 0;
+
+        rows.forEach(row => {
+            const textAll = (row.getAttribute('data-search') || '').toLowerCase();
+            const empresa = (row.getAttribute('data-empresa') || '').toLowerCase();
+            const sucursal = (row.getAttribute('data-sucursal') || '').toLowerCase();
+            const depto = (row.getAttribute('data-depto') || '').toLowerCase();
+            const cantEquipos = parseInt(row.getAttribute('data-equipos') || '0', 10);
+            const tieneM365 = row.getAttribute('data-m365') === 'true';
+
+            let matchesText = !textQuery || textAll.includes(textQuery);
+            let matchesEmpresa = !empresaVal || empresa.includes(empresaVal);
+            let matchesSucursal = !sucursalVal || sucursal.includes(sucursalVal);
+            let matchesDepto = !deptoVal || depto.includes(deptoVal);
+
+            let matchesRecursos = true;
+            if (recursosVal === 'con_equipo') matchesRecursos = cantEquipos > 0;
+            if (recursosVal === 'sin_equipo') matchesRecursos = cantEquipos === 0;
+            if (recursosVal === 'con_m365') matchesRecursos = tieneM365;
+            if (recursosVal === 'sin_m365') matchesRecursos = !tieneM365;
+
+            if (matchesText && matchesEmpresa && matchesSucursal && matchesDepto && matchesRecursos) {
+                row.style.display = '';
+                visibles++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        const countElem = document.getElementById('countVisibles');
+        if (countElem) countElem.innerText = visibles;
+    }
+
+    function limpiarFiltros() {
+        if (document.getElementById('filterText')) document.getElementById('filterText').value = '';
+        if (document.getElementById('filterEmpresa')) document.getElementById('filterEmpresa').value = '';
+        if (document.getElementById('filterSucursal')) document.getElementById('filterSucursal').value = '';
+        if (document.getElementById('filterDepto')) document.getElementById('filterDepto').value = '';
+        if (document.getElementById('filterRecursos')) document.getElementById('filterRecursos').value = '';
+        aplicarFiltros();
     }
 </script>
 

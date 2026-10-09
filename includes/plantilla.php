@@ -44,83 +44,52 @@ switch ($tipo) {
 
     case 'empleados':
         $filename  = 'plantilla_personal.csv';
-        $headers   = ['Colaborador','Area','Cargo','Empresa','Sucursal','Correo','Pass Correo','Estado','PC PIN','Pass AG','Correo Gmai','Pass Gmail'];
-        $instrucciones = [
-            ['Colaborador',   'OBLIGATORIO - Nombre completo'],
-            ['Area',          'Departamento o área funcional'],
-            ['Cargo',         'Puesto de trabajo'],
-            ['Empresa',       'Nombre de la empresa. Se creará si no existe.'],
-            ['Sucursal',      'Sucursal asignada. Se creará si no existe.'],
-            ['Correo',        'Correo corporativo principal'],
-            ['Pass Correo',   'Contraseña del correo corporativo (se cifrará)'],
-            ['Estado',        'Activo | Inactivo'],
-            ['PC PIN',        'PIN de la computadora asignada'],
-            ['Pass AG',       'Contraseña de Active Directory o similar (se cifrará)'],
-            ['Correo Gmai',   'Correo Gmail o adicional'],
-            ['Pass Gmail',    'Contraseña del correo Gmail (se cifrará)'],
-        ];
+        $headers   = ['Colaborador','Area','Cargo','Empresa','Sucursal','Correo','Pass Correo','Estado','PC PIN','Pass AG','Correo Gmail','Pass Gmail'];
         $rows = [
-            ['Carlos Antonio Mendoza Ruiz', 'Tecnología', 'Analista de Sistemas', 'Mi Empresa', 'Sucursal Managua', 'carlos@empresa.com', 'Pass123!', 'Activo', '1234', 'AgPass12', 'carlos.mendoza@gmail.com', 'Gmail123!'],
-            ['María Fernanda López Cruz', 'Finanzas', 'Contadora Senior', 'Mi Empresa', 'Sucursal León', 'maria@empresa.com', 'Pass123!', 'Activo', '0000', 'AgPass34', 'maria.lopez@gmail.com', 'Gmail456!'],
+            ['Carlos Antonio Mendoza Ruiz', 'Tecnología', 'Analista de Sistemas', 'Mastertec', 'Sucursal Managua', 'carlos@empresa.com', 'Pass123!', 'Activo', '1234', 'AgPass12', 'carlos.mendoza@gmail.com', 'Gmail123!'],
+            ['María Fernanda López Cruz', 'Finanzas', 'Contadora Senior', 'Mastertec', 'Sucursal León', 'maria@empresa.com', 'Pass123!', 'Activo', '0000', 'AgPass34', 'maria.lopez@gmail.com', 'Gmail456!'],
         ];
         break;
 
     case 'credenciales_equipos':
         $filename  = 'plantilla_credenciales_equipos.csv';
         $headers   = ['service_tag_sn','usuario_local','password','clave_bitlocker','notas_acceso'];
-        $instrucciones = [
-            ['service_tag_sn',  'OBLIGATORIO - Serial/Service Tag del equipo YA REGISTRADO en el sistema'],
-            ['usuario_local',   'OBLIGATORIO - Usuario administrador local del equipo (ej: admin, soporte)'],
-            ['password',        'OBLIGATORIO - Contraseña local. Se cifrará con AES-256 automáticamente.'],
-            ['clave_bitlocker', 'Clave de recuperación BitLocker de 48 dígitos. Dejar vacio si no está activo.'],
-            ['notas_acceso',    'RDP, SSH, VPN u otras indicaciones de acceso. Campo opcional.'],
-        ];
         $rows = [
             ['SN-DELL-00001', 'admin_local',  'P@ssw0rd2026!',  '123456-789012-345678-901234-567890-12', 'Admin local. RDP habilitado en puerto 3389'],
             ['SN-HP-00002',   'soporte',      'Sop0rte2026#',   '',                                      'Sin BitLocker activo.'],
             ['SN-LNV-00005',  'administrador','Adm1n2026@Corp', '654321-098765-432109-876543-210987-65', 'BitLocker obligatorio. Laptop gerencia.'],
-            ['SN-DELL-SRV-01','sysadmin',     'S3rv3r@Sec2026!','',                                      'Servidor Linux - acceso via SSH puerto 22'],
         ];
         break;
 
     case 'credenciales_web':
         $filename  = 'plantilla_credenciales_web.csv';
         $headers   = ['plataforma','url_acceso','usuario','password','notas'];
-        $instrucciones = [
-            ['plataforma',  'OBLIGATORIO - Nombre descriptivo del portal (ej: Portal AWS, Panel Cloudflare)'],
-            ['url_acceso',  'URL completa del portal (ej: https://console.aws.amazon.com). Opcional.'],
-            ['usuario',     'OBLIGATORIO - Correo o nombre de usuario de acceso'],
-            ['password',    'OBLIGATORIO - Contraseña. Se cifrará con AES-256 automáticamente.'],
-            ['notas',       'Descripción del uso, permisos o instrucciones adicionales. Opcional.'],
-        ];
         $rows = [
             ['Portal AWS Console',       'https://console.aws.amazon.com',   'infraestructura@empresa.com',  'AWS@Corp2026!Pass',   'Cuenta root de AWS. Solo IT Senior.'],
             ['Panel Cloudflare',         'https://dash.cloudflare.com',       'dns@empresa.com',              'Cloud99!Dns2026',     'DNS, CDN y certificados SSL.'],
             ['Google Workspace Admin',   'https://admin.google.com',         'admin@empresa.com',            'GW@Admin2026Corp',   'Consola de Google Workspace.'],
-            ['Portal GoDaddy',           'https://www.godaddy.com',           'dominios@empresa.com',         'GoD@ddy2026!',       'Dominios y renovaciones anuales.'],
-            ['Microsoft Azure Portal',   'https://portal.azure.com',         'azure@empresa.onmicrosoft.com','Azure2026!SecOps',   'VMs y servicios cloud corporativos.'],
-            ['Panel cPanel Hosting',     'https://hosting.proveedor.com:2083','cpanel_admin',                 'Host!ng2026@Panel',  'Control de hosting y correos.'],
         ];
         break;
 
     case 'm365':
         $filename  = 'plantilla_m365.csv';
         $headers   = ['correo','licencia_tipo','empleado_nombre','password','fecha_inicializacion','ciclo_facturacion','estado'];
-        $instrucciones = [
-            ['correo',               'OBLIGATORIO - Correo corporativo M365 unico (ej: juan@empresa.com)'],
-            ['licencia_tipo',        'OBLIGATORIO - Plan de licencia (ej: Microsoft 365 Business Standard)'],
-            ['empleado_nombre',      'Nombre del colaborador vinculado (debe existir en el sistema). Vacio = cuenta generica.'],
-            ['password',             'Contraseña inicial de la cuenta M365. Se cifrará con AES-256.'],
-            ['fecha_inicializacion', 'Fecha de inicio de suscripción en formato YYYY-MM-DD (ej: 2026-01-01)'],
-            ['ciclo_facturacion',    'Mensual | Anual'],
-            ['estado',               'Activa | Suspendida | Eliminada'],
-        ];
         $rows = [
             ['carlos.mendoza@empresa.com',  'Microsoft 365 Business Standard', 'Carlos Antonio Mendoza Ruiz',  'M365!Corp2026@', date('Y-m-01'), 'Mensual', 'Activa'],
             ['maria.lopez@empresa.com',     'Microsoft 365 Business Basic',    'María Fernanda López Cruz',     'M365!Corp2026@', date('Y-m-01'), 'Mensual', 'Activa'],
-            ['jose.perez@empresa.com',      'Microsoft 365 Apps for Business', 'José Alberto Pérez Sánchez',   'M365!Corp2026@', date('Y-m-01'), 'Anual',   'Activa'],
-            ['ana.torres@empresa.com',      'Microsoft 365 Business Basic',    'Ana Cecilia Torres Mora',       'M365!Corp2026@', date('Y-m-01'), 'Mensual', 'Activa'],
-            ['info@empresa.com',            'Microsoft 365 Business Basic',    '',                              'M365!Corp2026@', date('Y-m-01'), 'Mensual', 'Activa'],
+        ];
+        break;
+
+    case 'infraestructura':
+    case 'infraestructura_red':
+    case 'infra':
+        $filename  = 'plantilla_infraestructura_red.csv';
+        $headers   = ['nombre_dispositivo','tipo','empresa','sucursal','ip_direccion','mascara_vlan','marca','modelo','serie_mac','puertos','usuario_admin','password_admin','url_gestion','ubicacion_rack','estado','notas'];
+        $rows = [
+            ['Switch-Core-Managua', 'Switch Managed', 'Mastertec', 'Sucursal Managua', '192.168.10.2', 'VLAN 10 (Datos)', 'Cisco', 'Catalyst 2960X-48FPS', 'FCW2145L09A', '48 PoE+', 'admin', 'Cisco2026!', 'https://192.168.10.2', 'Rack Principal - Piso 1', 'Operativo', 'Switch Core Principal'],
+            ['AP-Recepcion-Leon', 'Access Point (AP)', 'Mastertec', 'Sucursal León', '192.168.20.15', 'VLAN 20 (WiFi)', 'Ubiquiti', 'UniFi U6-Pro', '74:83:C2:11:44:99', '1 GbE', 'admin', 'UniFiPass2026', 'https://192.168.20.1:8443', 'Cielo Falso', 'Operativo', 'AP Wi-Fi 6 alta densidad'],
+            ['Server-ActiveDirectory', 'Servidor Físico', 'Mastertec', 'Sucursal Managua', '192.168.10.200', '255.255.255.0', 'Dell', 'PowerEdge R740', 'SN-DELL-SRV-01', '4x 10GbE', 'Administrator', 'ServerPass2026!', 'https://192.168.10.200', 'Gabinete Server', 'Operativo', 'Servidor de Dominio'],
+            ['Firewall-FortiGate', 'Firewall / Router', 'Mastertec', 'Sucursal Managua', '192.168.10.1', 'WAN1 / VLAN 10,20', 'Fortinet', 'FortiGate 60F', 'FGT60FTK200912', '10 Ports', 'admin', 'FortiAdmin2026!', 'https://192.168.10.1:10443', 'Rack Principal U1', 'Operativo', 'Firewall Gateway'],
         ];
         break;
 
@@ -129,7 +98,7 @@ switch ($tipo) {
 }
 
 // ============================================================
-// GENERAR CSV REAL
+// GENERAR CSV REAL Y LIMPIO
 // ============================================================
 
 while (ob_get_level()) ob_end_clean();
@@ -151,16 +120,6 @@ fputcsv($output, $headers, ';');
 // Escribir las filas de ejemplo
 foreach ($rows as $row) {
     fputcsv($output, $row, ';');
-}
-
-// Escribir un par de lineas en blanco de separación
-fputcsv($output, [], ';');
-fputcsv($output, [], ';');
-fputcsv($output, ['--- INSTRUCCIONES DE COLUMNAS (PUEDES BORRAR ESTO) ---'], ';');
-
-// Escribir las instrucciones para el usuario al final del archivo
-foreach ($instrucciones as $inst) {
-    fputcsv($output, [$inst[0], '=>', $inst[1]], ';');
 }
 
 fclose($output);
