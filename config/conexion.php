@@ -7,13 +7,31 @@
 // Establecer la zona horaria en PHP
 date_default_timezone_set('America/Managua');
 
-// Parámetros de conexión (Ajustar según entorno de producción si es necesario)
-define('DB_HOST', 'localhost');
-define('DB_PORT', '3306');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_NAME', 'gestion_it');
-define('BASE_URL', '/it_software/');
+// Detección de entorno: Local (XAMPP) vs Servidor Remoto (InfinityFree)
+$is_local = (
+    !isset($_SERVER['HTTP_HOST']) || 
+    strpos($_SERVER['HTTP_HOST'], 'localhost') !== false || 
+    strpos($_SERVER['HTTP_HOST'], '127.0.0.1') !== false
+);
+
+if ($is_local) {
+    // Entorno Local (XAMPP)
+    if (!defined('DB_HOST')) define('DB_HOST', 'localhost');
+    if (!defined('DB_PORT')) define('DB_PORT', '3306');
+    if (!defined('DB_USER')) define('DB_USER', 'root');
+    if (!defined('DB_PASS')) define('DB_PASS', '');
+    if (!defined('DB_NAME')) define('DB_NAME', 'gestion_it');
+    if (!defined('BASE_URL')) define('BASE_URL', '/it_software/');
+} else {
+    // Entorno Producción (InfinityFree / gestionit.xo.je)
+    // NOTA: Ajustar con los datos de 'MySQL Databases' de tu panel de InfinityFree
+    if (!defined('DB_HOST')) define('DB_HOST', getenv('DB_HOST') ?: 'sql208.infinityfree.com'); 
+    if (!defined('DB_PORT')) define('DB_PORT', '3306');
+    if (!defined('DB_USER')) define('DB_USER', getenv('DB_USER') ?: 'if0_43167470');
+    if (!defined('DB_PASS')) define('DB_PASS', getenv('DB_PASS') ?: 'q2WuKNEtrmdR8b');
+    if (!defined('DB_NAME')) define('DB_NAME', getenv('DB_NAME') ?: 'if0_43167470_gestion_it');
+    if (!defined('BASE_URL')) define('BASE_URL', '/');
+}
 
 class Database {
     private static $conexion = null;
