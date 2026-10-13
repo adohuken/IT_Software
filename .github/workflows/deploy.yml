@@ -27,7 +27,9 @@ jobs:
             **/.git*/**
             **/.github/**
             **/node_modules/**
+            database/**
             sql/**
             *.txt
             *.md
             fix_deployment_db.sql
+
