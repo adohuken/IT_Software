@@ -1,25 +1,31 @@
-name: Deploy to Production
+name: Deploy to InfinityFree
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - master
 
 jobs:
-  deploy:
+  web-deploy:
+    name: 🎉 Deploy
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: 🚚 Get latest code
         uses: actions/checkout@v4
 
-      - name: Deploy to Server via SSH
-        uses: appleboy/ssh-action@master
+      - name: 📂 Sync files
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd /ruta/a/tu/proyecto/en/el/servidor
-            git pull origin main
-            # Opcional: comandos extra si necesitas compilar o instalar dependencias
-            # npm install
-            # npm run build
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: /htdocs/
+          state-name: .ftp-deploy-sync-state.json
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            sql/**
+            *.txt
+            *.md
+            fix_deployment_db.sql
