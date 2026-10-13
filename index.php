@@ -23,6 +23,10 @@ $laptops_count = 0;
 $desktops_count = 0;
 $impresoras_count = 0;
 $otros_count = 0;
+$hw_detalle = [];
+$suc_detalles = [];
+$kpi_empresas = [];
+$kpi_colab_ciudades = [];
 
 $tareas_urgentes = [];
 $m365_proximos = [];
@@ -46,7 +50,7 @@ try {
         $m365_cred = (int) $db->query("SELECT COUNT(*) FROM cuentas_m365")->fetchColumn();
         $kpis['total_credenciales'] = $eq_cred + $web_cred + $m365_cred;
 
-        $kpis['total_colaboradores'] = (int) $db->query("SELECT COUNT(*) FROM empleados WHERE cargo NOT IN ('Sucursal', 'Empresa')")->fetchColumn();
+        $kpis['total_colaboradores'] = (int) $db->query("SELECT COUNT(*) FROM empleados WHERE cargo IS NULL OR cargo NOT IN ('Sucursal', 'Empresa')")->fetchColumn();
         $kpis['total_equipos'] = (int) $db->query("SELECT COUNT(*) FROM equipos")->fetchColumn();
         $kpis['total_sucursales'] = (int) $db->query("SELECT COUNT(DISTINCT sucursal_id) FROM equipos WHERE sucursal_id IS NOT NULL")->fetchColumn();
         $kpis['tareas_pendientes'] = (int) $db->query("SELECT COUNT(*) FROM tareas_it WHERE estado IN ('Pendiente', 'En Progreso')")->fetchColumn();
@@ -57,17 +61,111 @@ try {
         $impresoras_count = (int) $db->query("SELECT COUNT(*) FROM equipos WHERE tipo = 'Impresora'")->fetchColumn();
         $otros_count = (int) $db->query("SELECT COUNT(*) FROM equipos WHERE tipo NOT IN ('Laptop', 'Desktop', 'Impresora')")->fetchColumn();
 
+        // 2b. Desglose detallado por categoría (panel interactivo de Composición de Hardware)
+        $hw_map_cat = ['Laptop' => 'laptop', 'Desktop' => 'desktop', 'Impresora' => 'impresora'];
+        foreach (['laptop', 'desktop', 'impresora', 'otros'] as $k) {
+            $hw_detalle[$k] = ['estado' => [], 'marca' => [], 'sucursal' => [], 'tipo' => []];
+        }
+        $rows_det = $db->query("
+            SELECT eq.tipo AS tipo,
+                   eq.estado AS estado,
+                   COALESCE(NULLIF(TRIM(eq.marca), ''), 'Sin marca') AS marca,
+                   COALESCE(s.nombre, 'Sin sucursal') AS sucursal,
+                   COUNT(*) AS total
+            FROM equipos eq
+            LEFT JOIN sucursales s ON eq.sucursal_id = s.id
+            WHERE eq.tipo IS NOT NULL
+            GROUP BY 1, 2, 3, 4
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows_det as $r) {
+            $cat = $hw_map_cat[$r['tipo']] ?? 'otros';
+            $n = (int) $r['total'];
+            foreach (['estado', 'marca', 'sucursal', 'tipo'] as $dim) {
+                $val = ($r[$dim] !== null && $r[$dim] !== '') ? $r[$dim] : 'Sin definir';
+                $hw_detalle[$cat][$dim][$val] = ($hw_detalle[$cat][$dim][$val] ?? 0) + $n;
+            }
+        }
+        foreach ($hw_detalle as $k => $dims) {
+            foreach ($dims as $dk => $vals) {
+                arsort($vals);
+                $hw_detalle[$k][$dk] = $vals;
+            }
+        }
+
+        // 2c. Totales por Empresa para KPI de Red Corporativa
+        $kpi_empresas = $db->query("
+            SELECT e.nombre, COUNT(eq.id) as total
+            FROM empresas e
+            JOIN sucursales s ON s.empresa_id = e.id
+            LEFT JOIN equipos eq ON eq.sucursal_id = s.id
+            GROUP BY e.id, e.nombre
+            ORDER BY total DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        // 2d. Totales de Colaboradores por Zona / Ciudad
+        $kpi_colab_ciudades = $db->query("
+            SELECT 
+                CASE 
+                    WHEN s.nombre LIKE '%Managua%' OR s.ubicacion LIKE '%Managua%' THEN 'Managua'
+                    WHEN s.nombre LIKE '%Le%' OR s.ubicacion LIKE '%Le%' THEN 'León'
+                    WHEN s.nombre LIKE '%S_baco%' OR s.ubicacion LIKE '%S_baco%' THEN 'Sébaco'
+                    ELSE 'Otras'
+                END AS ciudad,
+                COUNT(emp.id) as total
+            FROM empleados emp
+            JOIN sucursales s ON emp.sucursal_id = s.id
+            WHERE emp.cargo IS NULL OR emp.cargo NOT IN ('Sucursal', 'Empresa')
+            GROUP BY 1
+            ORDER BY total DESC
+            LIMIT 3
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
         // 3. Equipos por Sucursal y Empresa
         $sqlSuc = "
-            SELECT s.nombre as sucursal_nombre, e.nombre as empresa_nombre, COUNT(eq.id) as total
+            SELECT s.id as sucursal_id, s.nombre as sucursal_nombre, s.ubicacion, e.nombre as empresa_nombre, COUNT(eq.id) as total
             FROM sucursales s
             JOIN empresas e ON s.empresa_id = e.id
             LEFT JOIN equipos eq ON eq.sucursal_id = s.id
             WHERE s.id IN (SELECT DISTINCT sucursal_id FROM equipos WHERE sucursal_id IS NOT NULL)
-            GROUP BY s.id
+            GROUP BY s.id, s.nombre, s.ubicacion, e.nombre
             ORDER BY total DESC
         ";
         $equipos_por_sucursal = $db->query($sqlSuc)->fetchAll(PDO::FETCH_ASSOC);
+
+        // 3b. Desglose detallado por Sucursal (para acordeón interactivo de Distribución de Equipos)
+        $suc_detalles = [];
+        $rows_suc_det = $db->query("
+            SELECT eq.sucursal_id,
+                   COALESCE(NULLIF(TRIM(eq.tipo), ''), 'Otro') AS tipo,
+                   COALESCE(NULLIF(TRIM(eq.estado), ''), 'Sin estado') AS estado,
+                   COALESCE(NULLIF(TRIM(eq.marca), ''), 'Sin marca') AS marca,
+                   COUNT(*) AS total
+            FROM equipos eq
+            WHERE eq.sucursal_id IS NOT NULL
+            GROUP BY eq.sucursal_id, eq.tipo, eq.estado, marca
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($rows_suc_det as $rd) {
+            $sid = (int) $rd['sucursal_id'];
+            if (!isset($suc_detalles[$sid])) {
+                $suc_detalles[$sid] = ['tipo' => [], 'estado' => [], 'marca' => []];
+            }
+            $n = (int) $rd['total'];
+            $t = $rd['tipo'];
+            $e = $rd['estado'];
+            $m = $rd['marca'];
+            
+            $suc_detalles[$sid]['tipo'][$t] = ($suc_detalles[$sid]['tipo'][$t] ?? 0) + $n;
+            $suc_detalles[$sid]['estado'][$e] = ($suc_detalles[$sid]['estado'][$e] ?? 0) + $n;
+            $suc_detalles[$sid]['marca'][$m] = ($suc_detalles[$sid]['marca'][$m] ?? 0) + $n;
+        }
+
+        foreach ($suc_detalles as $sid => $dims) {
+            foreach ($dims as $dk => $vals) {
+                arsort($vals);
+                $suc_detalles[$sid][$dk] = $vals;
+            }
+        }
 
         // 4. Equipos por Tipo
         $sqlTipo = "SELECT tipo, COUNT(*) as total FROM equipos GROUP BY tipo ORDER BY total DESC";
@@ -235,24 +333,24 @@ require_once __DIR__ . '/includes/header.php';
         <div class="relative overflow-hidden rounded-3xl p-6 bg-white/80 backdrop-blur-xl border border-cyan-500/20 shadow-xl shadow-cyan-500/5 group hover:-translate-y-1 hover:shadow-cyan-500/15 transition-all duration-300">
             <div class="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-cyan-500/15 blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
             <div class="flex items-start justify-between relative z-10">
-                <div>
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-cyan-500/10 text-cyan-600 border border-cyan-500/20 mb-3">
+                <a href="<?= BASE_URL ?>modules/equipos/index.php" class="block group/link">
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-cyan-500/10 text-cyan-600 border border-cyan-500/20 mb-3 group-hover/link:bg-cyan-500/20 transition">
                         <span class="h-1.5 w-1.5 rounded-full bg-cyan-500 animate-ping"></span>
                         Inventario Activo
                     </span>
-                    <h3 class="text-4xl font-black text-slate-900 tracking-tight mb-1"><?= number_format($kpis['total_equipos']) ?></h3>
+                    <h3 class="text-4xl font-black text-slate-900 tracking-tight mb-1 group-hover/link:text-cyan-600 transition"><?= number_format($kpis['total_equipos']) ?></h3>
                     <p class="text-xs font-semibold text-slate-600">Equipos Registrados</p>
-                </div>
-                <div class="h-13 w-13 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-cyan-500/30 shrink-0 group-hover:scale-110 transition-transform">
+                </a>
+                <a href="<?= BASE_URL ?>modules/equipos/index.php" class="h-13 w-13 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-cyan-500/30 shrink-0 group-hover:scale-110 transition-transform" title="Ver inventario de equipos">
                     <i class="fa-solid fa-laptop-code"></i>
-                </div>
+                </a>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500 font-medium relative z-10">
-                <span><strong class="text-slate-800"><?= $laptops_count ?></strong> Laptops</span>
+                <a href="<?= BASE_URL ?>modules/equipos/index.php?tipo=Laptop" class="hover:text-cyan-600 transition underline-offset-2 hover:underline" title="Ver Laptops"><strong class="text-slate-800"><?= $laptops_count ?></strong> Laptops</a>
                 <span>•</span>
-                <span><strong class="text-slate-800"><?= $desktops_count ?></strong> Desktops</span>
+                <a href="<?= BASE_URL ?>modules/equipos/index.php?tipo=Desktop" class="hover:text-cyan-600 transition underline-offset-2 hover:underline" title="Ver Desktops"><strong class="text-slate-800"><?= $desktops_count ?></strong> Desktops</a>
                 <span>•</span>
-                <span><strong class="text-slate-800"><?= $impresoras_count ?></strong> Impresoras</span>
+                <a href="<?= BASE_URL ?>modules/equipos/index.php?tipo=Impresora" class="hover:text-cyan-600 transition underline-offset-2 hover:underline" title="Ver Impresoras"><strong class="text-slate-800"><?= $impresoras_count ?></strong> Impresoras</a>
             </div>
         </div>
 
@@ -260,23 +358,28 @@ require_once __DIR__ . '/includes/header.php';
         <div class="relative overflow-hidden rounded-3xl p-6 bg-white/80 backdrop-blur-xl border border-violet-500/20 shadow-xl shadow-violet-500/5 group hover:-translate-y-1 hover:shadow-violet-500/15 transition-all duration-300">
             <div class="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-violet-500/15 blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
             <div class="flex items-start justify-between relative z-10">
-                <div>
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-violet-500/10 text-violet-600 border border-violet-500/20 mb-3">
+                <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="block group/link">
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-violet-500/10 text-violet-600 border border-violet-500/20 mb-3 group-hover/link:bg-violet-500/20 transition">
                         <i class="fa-solid fa-building text-[9px]"></i> Red Corporativa
                     </span>
-                    <h3 class="text-4xl font-black text-slate-900 tracking-tight mb-1"><?= $kpis['total_sucursales'] ?></h3>
+                    <h3 class="text-4xl font-black text-slate-900 tracking-tight mb-1 group-hover/link:text-violet-600 transition"><?= $kpis['total_sucursales'] ?></h3>
                     <p class="text-xs font-semibold text-slate-600">Sucursales Activas</p>
-                </div>
-                <div class="h-13 w-13 rounded-2xl bg-gradient-to-tr from-violet-500 to-purple-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-violet-500/30 shrink-0 group-hover:scale-110 transition-transform">
+                </a>
+                <a href="<?= BASE_URL ?>modules/configuracion/index.php" class="h-13 w-13 rounded-2xl bg-gradient-to-tr from-violet-500 to-purple-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-violet-500/30 shrink-0 group-hover:scale-110 transition-transform" title="Gestionar sucursales">
                     <i class="fa-solid fa-sitemap"></i>
-                </div>
+                </a>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500 font-medium relative z-10">
-                <span><strong>Mastertec</strong> (36)</span>
-                <span>•</span>
-                <span><strong>Suministros</strong> (42)</span>
-                <span>•</span>
-                <span><strong>Centro</strong> (20)</span>
+                <?php if (!empty($kpi_empresas)): ?>
+                    <?php foreach (array_slice($kpi_empresas, 0, 3) as $idx => $ke): ?>
+                        <?php if ($idx > 0): ?><span>•</span><?php endif; ?>
+                        <a href="<?= BASE_URL ?>modules/equipos/index.php" class="hover:text-violet-600 transition underline-offset-2 hover:underline" title="Ver equipos de <?= htmlspecialchars($ke['nombre']) ?>">
+                            <strong class="text-slate-800"><?= htmlspecialchars($ke['nombre']) ?></strong> (<?= (int)$ke['total'] ?>)
+                        </a>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <span>Mastertec (36)</span><span>•</span><span>Suministros (42)</span><span>•</span><span>Centro (20)</span>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -284,23 +387,28 @@ require_once __DIR__ . '/includes/header.php';
         <div class="relative overflow-hidden rounded-3xl p-6 bg-white/80 backdrop-blur-xl border border-emerald-500/20 shadow-xl shadow-emerald-500/5 group hover:-translate-y-1 hover:shadow-emerald-500/15 transition-all duration-300">
             <div class="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-emerald-500/15 blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
             <div class="flex items-start justify-between relative z-10">
-                <div>
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 mb-3">
+                <a href="<?= BASE_URL ?>modules/empleados/index.php" class="block group/link">
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 mb-3 group-hover/link:bg-emerald-500/20 transition">
                         <i class="fa-solid fa-check-circle text-[9px]"></i> Asignaciones 100%
                     </span>
-                    <h3 class="text-4xl font-black text-slate-900 tracking-tight mb-1"><?= number_format($kpis['total_colaboradores']) ?></h3>
+                    <h3 class="text-4xl font-black text-slate-900 tracking-tight mb-1 group-hover/link:text-emerald-600 transition"><?= number_format($kpis['total_colaboradores']) ?></h3>
                     <p class="text-xs font-semibold text-slate-600">Colaboradores Asignados</p>
-                </div>
-                <div class="h-13 w-13 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/30 shrink-0 group-hover:scale-110 transition-transform">
+                </a>
+                <a href="<?= BASE_URL ?>modules/empleados/index.php" class="h-13 w-13 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/30 shrink-0 group-hover:scale-110 transition-transform" title="Ver colaboradores">
                     <i class="fa-solid fa-users-gear"></i>
-                </div>
+                </a>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500 font-medium relative z-10">
-                <span>Managua: <strong class="text-slate-800">79</strong></span>
-                <span>•</span>
-                <span>León: <strong class="text-slate-800">14</strong></span>
-                <span>•</span>
-                <span>Sébaco: <strong class="text-slate-800">5</strong></span>
+                <?php if (!empty($kpi_colab_ciudades)): ?>
+                    <?php foreach ($kpi_colab_ciudades as $idx => $kcc): ?>
+                        <?php if ($idx > 0): ?><span>•</span><?php endif; ?>
+                        <a href="<?= BASE_URL ?>modules/empleados/index.php" class="hover:text-emerald-600 transition underline-offset-2 hover:underline" title="Ver colaboradores en <?= htmlspecialchars($kcc['ciudad']) ?>">
+                            <?= htmlspecialchars($kcc['ciudad']) ?>: <strong class="text-slate-800"><?= (int)$kcc['total'] ?></strong>
+                        </a>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <span>Managua: <strong class="text-slate-800">72</strong></span><span>•</span><span>León: <strong class="text-slate-800">10</strong></span><span>•</span><span>Sébaco: <strong class="text-slate-800">4</strong></span>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -308,23 +416,23 @@ require_once __DIR__ . '/includes/header.php';
         <div class="relative overflow-hidden rounded-3xl p-6 bg-white/80 backdrop-blur-xl border border-amber-500/20 shadow-xl shadow-amber-500/5 group hover:-translate-y-1 hover:shadow-amber-500/15 transition-all duration-300">
             <div class="absolute -right-6 -bottom-6 w-32 h-32 rounded-full bg-amber-500/15 blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
             <div class="flex items-start justify-between relative z-10">
-                <div>
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/10 text-amber-600 border border-amber-500/20 mb-3">
+                <a href="<?= BASE_URL ?>modules/credenciales/index.php" class="block group/link">
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/10 text-amber-600 border border-amber-500/20 mb-3 group-hover/link:bg-amber-500/20 transition">
                         <i class="fa-solid fa-shield-halved text-[9px]"></i> Accesos & M365
                     </span>
-                    <h3 class="text-4xl font-black text-slate-900 tracking-tight mb-1"><?= number_format($kpis['total_credenciales']) ?></h3>
+                    <h3 class="text-4xl font-black text-slate-900 tracking-tight mb-1 group-hover/link:text-amber-600 transition"><?= number_format($kpis['total_credenciales']) ?></h3>
                     <p class="text-xs font-semibold text-slate-600">Credenciales Protegidas</p>
-                </div>
-                <div class="h-13 w-13 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-amber-500/30 shrink-0 group-hover:scale-110 transition-transform">
+                </a>
+                <a href="<?= BASE_URL ?>modules/credenciales/index.php" class="h-13 w-13 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center text-2xl shadow-lg shadow-amber-500/30 shrink-0 group-hover:scale-110 transition-transform" title="Ver bóveda de credenciales">
                     <i class="fa-solid fa-lock"></i>
-                </div>
+                </a>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500 font-medium relative z-10">
-                <span>M365: <strong class="text-slate-800"><?= $m365_cred ?></strong></span>
+                <a href="<?= BASE_URL ?>modules/credenciales/index.php?tab=m365" class="hover:text-amber-600 transition underline-offset-2 hover:underline" title="Ver credenciales M365">M365: <strong class="text-slate-800"><?= $m365_cred ?></strong></a>
                 <span>•</span>
-                <span>Equipos: <strong class="text-slate-800"><?= $eq_cred ?></strong></span>
+                <a href="<?= BASE_URL ?>modules/credenciales/index.php?tab=equipos" class="hover:text-amber-600 transition underline-offset-2 hover:underline" title="Ver credenciales de Equipos">Equipos: <strong class="text-slate-800"><?= $eq_cred ?></strong></a>
                 <span>•</span>
-                <span>Web: <strong class="text-slate-800"><?= $web_cred ?></strong></span>
+                <a href="<?= BASE_URL ?>modules/credenciales/index.php?tab=web" class="hover:text-amber-600 transition underline-offset-2 hover:underline" title="Ver credenciales Web">Web: <strong class="text-slate-800"><?= $web_cred ?></strong></a>
             </div>
         </div>
 
@@ -340,14 +448,14 @@ require_once __DIR__ . '/includes/header.php';
                         <h3 class="text-base font-extrabold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-chart-column text-cyan-500"></i> Distribución de Equipos por Sucursal
                         </h3>
-                        <p class="text-xs text-slate-400 mt-0.5">Desglose de hardware activo según sede y empresa corporativa</p>
+                        <p class="text-xs text-slate-400 mt-0.5">Desglose de hardware activo según sede y empresa corporativa · <span class="text-cyan-600 font-semibold">clic para ver el detalle</span></p>
                     </div>
                     <a href="<?= BASE_URL ?>modules/equipos/index.php" class="text-xs font-bold text-cyan-600 hover:text-cyan-700 bg-cyan-50 px-3 py-1.5 rounded-xl border border-cyan-100 transition">
                         Ver Lista Completa <i class="fa-solid fa-arrow-right text-[10px] ml-1"></i>
                     </a>
                 </div>
 
-                <div class="space-y-3">
+                <div class="space-y-3" id="suc-distribucion">
                     <?php 
                     $maxSucVal = !empty($equipos_por_sucursal) ? max(array_column($equipos_por_sucursal, 'total')) : 1;
                     $sucColors = [
@@ -358,27 +466,151 @@ require_once __DIR__ . '/includes/header.php';
                         'Suministros León'    => 'from-blue-500 to-indigo-600',
                         'Suministros Sébaco'  => 'from-rose-500 to-pink-600'
                     ];
+                    $tipoIcons = [
+                        'Laptop'    => 'fa-laptop text-cyan-500',
+                        'Desktop'   => 'fa-desktop text-violet-500',
+                        'Impresora' => 'fa-print text-emerald-500',
+                        'Otro'      => 'fa-plug text-amber-500',
+                        'UPS'       => 'fa-plug text-amber-500',
+                    ];
+                    $estadoBadges = [
+                        'Asignado'      => 'bg-blue-50 text-blue-600 border-blue-200',
+                        'Disponible'    => 'bg-emerald-50 text-emerald-600 border-emerald-200',
+                        'En Reparación' => 'bg-amber-50 text-amber-600 border-amber-200',
+                        'Reparación'    => 'bg-amber-50 text-amber-600 border-amber-200',
+                        'De Baja'       => 'bg-rose-50 text-rose-600 border-rose-200',
+                    ];
+
                     foreach ($equipos_por_sucursal as $suc):
-                        $pct = round(($suc['total'] / $kpis['total_equipos']) * 100);
+                        $sid = (int) $suc['sucursal_id'];
+                        $pct = round(($suc['total'] / max(1, $kpis['total_equipos'])) * 100);
                         $grad = $sucColors[$suc['sucursal_nombre']] ?? 'from-cyan-500 to-blue-600';
+                        $sdet = $suc_detalles[$sid] ?? ['tipo' => [], 'estado' => [], 'marca' => []];
                     ?>
-                        <div class="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-100 hover:border-slate-200 transition">
-                            <div class="flex items-center justify-between text-xs font-semibold text-slate-800 mb-1.5">
-                                <span class="flex items-center gap-2">
-                                    <span class="h-2 w-2 rounded-full bg-gradient-to-r <?= $grad ?>"></span>
-                                    <?= htmlspecialchars($suc['sucursal_nombre']) ?>
-                                    <span class="text-[10px] font-bold text-slate-400"> (<?= htmlspecialchars($suc['empresa_nombre']) ?>)</span>
-                                </span>
-                                <span class="font-bold text-slate-700 font-mono"><?= $suc['total'] ?> equipos (<?= $pct ?>%)</span>
-                            </div>
-                            <div class="w-full h-2.5 rounded-full bg-slate-200/80 overflow-hidden">
-                                <div class="h-full rounded-full bg-gradient-to-r <?= $grad ?> transition-all duration-500" style="width: <?= $pct ?>%"></div>
+                        <div class="suc-item rounded-2xl bg-slate-50/80 border border-slate-100 hover:border-cyan-300 hover:shadow-md transition-all duration-300 overflow-hidden" data-suc="<?= $sid ?>">
+                            <button type="button" onclick="toggleSucDetalle(<?= $sid ?>)" aria-expanded="false" aria-controls="suc-panel-<?= $sid ?>"
+                                    class="w-full p-3.5 text-left cursor-pointer group focus:outline-none transition-colors">
+                                <div class="flex items-center justify-between text-xs font-semibold text-slate-800 mb-2">
+                                    <span class="flex items-center gap-2">
+                                        <span class="h-2.5 w-2.5 rounded-full bg-gradient-to-r <?= $grad ?> shadow-sm shrink-0"></span>
+                                        <span class="font-bold text-slate-800 group-hover:text-cyan-600 transition-colors"><?= htmlspecialchars($suc['sucursal_nombre']) ?></span>
+                                        <span class="text-[10px] font-bold text-slate-400 bg-white/80 px-2 py-0.5 rounded-md border border-slate-200/60">🏢 <?= htmlspecialchars($suc['empresa_nombre']) ?></span>
+                                    </span>
+                                    <div class="flex items-center gap-3">
+                                        <span class="font-bold text-slate-700 font-mono"><?= $suc['total'] ?> equipos <span class="text-slate-400 font-normal">(<?= $pct ?>%)</span></span>
+                                        <i class="suc-chevron fa-solid fa-chevron-down text-xs text-slate-400 group-hover:text-cyan-600 transition-transform duration-300"></i>
+                                    </div>
+                                </div>
+                                <div class="w-full h-2 rounded-full bg-slate-200/80 overflow-hidden">
+                                    <div class="h-full rounded-full bg-gradient-to-r <?= $grad ?> transition-all duration-500" style="width: <?= $pct ?>%"></div>
+                                </div>
+                            </button>
+
+                            <!-- Panel Expandible de la Sucursal -->
+                            <div id="suc-panel-<?= $sid ?>" class="suc-panel overflow-hidden transition-all duration-300 ease-out" style="max-height:0">
+                                <div class="px-4 pb-4 pt-2 space-y-4 border-t border-slate-200/60 bg-white/70">
+                                    
+                                    <!-- 1. Desglose por Tipo de Equipo -->
+                                    <div class="pt-2">
+                                        <div class="flex items-center justify-between mb-2">
+                                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                <i class="fa-solid fa-layer-group text-cyan-500"></i> Tipos de Hardware
+                                            </p>
+                                            <span class="text-[10px] text-slate-400">Clic en un tipo para filtrar</span>
+                                        </div>
+                                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                            <?php foreach ($sdet['tipo'] as $tNombre => $tCant): 
+                                                $tIconClass = $tipoIcons[$tNombre] ?? 'fa-microchip text-slate-500';
+                                                $tFilterVal = in_array($tNombre, ['Laptop', 'Desktop', 'Impresora']) ? $tNombre : '__otros__';
+                                            ?>
+                                                <a href="<?= BASE_URL ?>modules/equipos/index.php?sucursal_id=<?= $sid ?>&tipo=<?= urlencode($tFilterVal) ?>"
+                                                   class="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 hover:border-cyan-400 hover:bg-cyan-50/50 hover:shadow-sm transition group/tipo flex items-center justify-between">
+                                                    <div class="flex items-center gap-2 min-w-0">
+                                                        <i class="fa-solid <?= $tIconClass ?> text-xs shrink-0"></i>
+                                                        <span class="text-xs font-semibold text-slate-700 group-hover/tipo:text-cyan-700 truncate"><?= htmlspecialchars($tNombre) ?></span>
+                                                    </div>
+                                                    <span class="font-mono font-black text-slate-900 text-xs ml-1"><?= (int)$tCant ?></span>
+                                                </a>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <!-- 2. Por Estado Operativo -->
+                                        <div>
+                                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                                <i class="fa-solid fa-signal text-emerald-500"></i> Estado Operativo
+                                            </p>
+                                            <div class="flex flex-wrap gap-1.5">
+                                                <?php foreach ($sdet['estado'] as $eNombre => $eCant): ?>
+                                                    <span class="px-2.5 py-1 rounded-lg border text-[11px] font-semibold <?= $estadoBadges[$eNombre] ?? 'bg-slate-50 text-slate-600 border-slate-200' ?>">
+                                                        <?= htmlspecialchars($eNombre) ?> <strong class="font-black font-mono ml-0.5"><?= (int)$eCant ?></strong>
+                                                    </span>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+
+                                        <!-- 3. Top Marcas -->
+                                        <div>
+                                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                                <i class="fa-solid fa-tag text-violet-500"></i> Principales Marcas
+                                            </p>
+                                            <div class="space-y-1.5">
+                                                <?php 
+                                                $iMarcas = 0;
+                                                foreach ($sdet['marca'] as $mNombre => $mCant): 
+                                                    if ($iMarcas++ >= 3) break;
+                                                    $pctMarca = round(($mCant / max(1, $suc['total'])) * 100);
+                                                ?>
+                                                    <div class="space-y-0.5">
+                                                        <div class="flex justify-between text-[11px]">
+                                                            <span class="text-slate-600 font-medium truncate"><?= htmlspecialchars((string)$mNombre) ?></span>
+                                                            <span class="font-bold text-slate-800 font-mono"><?= (int)$mCant ?> <span class="text-slate-400 font-normal">(<?= $pctMarca ?>%)</span></span>
+                                                        </div>
+                                                        <div class="h-1 rounded-full bg-slate-100 overflow-hidden">
+                                                            <div class="h-full rounded-full bg-gradient-to-r <?= $grad ?>" style="width: <?= $pctMarca ?>%"></div>
+                                                        </div>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 4. Botón Ver en Inventario -->
+                                    <div class="pt-1">
+                                        <a href="<?= BASE_URL ?>modules/equipos/index.php?sucursal_id=<?= $sid ?>"
+                                           class="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-white border border-slate-300 hover:border-cyan-500 hover:bg-cyan-500 hover:text-white text-slate-700 text-xs font-bold transition-all duration-300 shadow-sm">
+                                            <span>Ver todos los <?= $suc['total'] ?> equipos de <?= htmlspecialchars($suc['sucursal_nombre']) ?></span>
+                                            <i class="fa-solid fa-arrow-right text-[10px]"></i>
+                                        </a>
+                                    </div>
+
+                                </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
                 </div>
+
+                <script>
+                    // Acordeón interactivo para la Distribución por Sucursales
+                    function toggleSucDetalle(sucId) {
+                        document.querySelectorAll('#suc-distribucion .suc-item').forEach(function (item) {
+                            var btn = item.querySelector('button[aria-controls]');
+                            var panel = item.querySelector('.suc-panel');
+                            var chev = item.querySelector('.suc-chevron');
+                            var abrir = parseInt(item.dataset.suc) === parseInt(sucId) && btn.getAttribute('aria-expanded') !== 'true';
+
+                            btn.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+                            chev.classList.toggle('rotate-180', abrir);
+                            item.classList.toggle('shadow-md', abrir);
+                            item.classList.toggle('border-cyan-400', abrir);
+                            panel.style.maxHeight = abrir ? panel.scrollHeight + 'px' : '0';
+                        });
+                    }
+                </script>
             </div>
         </div>
+
 
         <!-- Tarjeta: Composición de Hardware -->
         <div class="bg-white/80 backdrop-blur-xl rounded-3xl p-6 shadow-sm border border-slate-200/80 flex flex-col justify-between">
@@ -386,65 +618,144 @@ require_once __DIR__ . '/includes/header.php';
                 <h3 class="text-base font-extrabold text-slate-800 mb-1 flex items-center gap-2">
                     <i class="fa-solid fa-pie-chart text-violet-500"></i> Composición de Hardware
                 </h3>
-                <p class="text-xs text-slate-400 mb-5">Proporción por tipo de tecnología</p>
+                <p class="text-xs text-slate-400 mb-5">Proporción por tipo de tecnología · <span class="text-violet-500 font-semibold">clic para ver el detalle</span></p>
 
-                <div class="space-y-4">
-                    <!-- Laptops -->
-                    <div class="flex items-center justify-between p-3.5 rounded-2xl bg-cyan-50/60 border border-cyan-100">
-                        <div class="flex items-center gap-3">
-                            <div class="h-10 w-10 rounded-xl bg-cyan-500 text-white flex items-center justify-center text-lg shadow-md shadow-cyan-500/20">
-                                <i class="fa-solid fa-laptop"></i>
+                <?php
+                $hw_cats = [
+                    ['key' => 'laptop',    'titulo' => 'Laptops Corporativas',   'sub' => 'Portátiles de trabajo',       'icon' => 'fa-laptop',  'color' => 'cyan',    'total' => $laptops_count,    'filtro' => 'Laptop'],
+                    ['key' => 'desktop',   'titulo' => 'Desktops & Clones',      'sub' => 'Computadoras de escritorio',  'icon' => 'fa-desktop', 'color' => 'violet',  'total' => $desktops_count,   'filtro' => 'Desktop'],
+                    ['key' => 'impresora', 'titulo' => 'Impresoras & Térmicas',  'sub' => 'Láser, Inyección y Matricial', 'icon' => 'fa-print',   'color' => 'emerald', 'total' => $impresoras_count, 'filtro' => 'Impresora'],
+                    ['key' => 'otros',     'titulo' => 'UPS & Energía',          'sub' => 'Respaldo, redes y otros',     'icon' => 'fa-plug',    'color' => 'amber',   'total' => $otros_count,      'filtro' => '__otros__'],
+                ];
+                $hw_total_general = max(1, $laptops_count + $desktops_count + $impresoras_count + $otros_count);
+                $hw_estado_colores = [
+                    'Asignado'      => 'bg-blue-50 text-blue-600 border-blue-200',
+                    'Disponible'    => 'bg-emerald-50 text-emerald-600 border-emerald-200',
+                    'En Reparación' => 'bg-amber-50 text-amber-600 border-amber-200',
+                    'Reparación'    => 'bg-amber-50 text-amber-600 border-amber-200',
+                    'De Baja'       => 'bg-rose-50 text-rose-600 border-rose-200',
+                ];
+                // Lista de barras horizontales (top N + "N más")
+                $hw_render_barras = function (array $items, int $total, string $color, int $limite = 5) {
+                    $total = max(1, $total);
+                    $i = 0;
+                    foreach ($items as $nombre => $cant) {
+                        if ($i++ >= $limite) break;
+                        $pct = round(($cant / $total) * 100);
+                        echo '<div class="space-y-1">'
+                           . '<div class="flex justify-between text-[11px]"><span class="text-slate-600 font-medium truncate pr-2">' . htmlspecialchars((string) $nombre) . '</span>'
+                           . '<span class="font-bold text-slate-800 font-mono shrink-0">' . (int) $cant . ' <span class="text-slate-400 font-normal">(' . $pct . '%)</span></span></div>'
+                           . '<div class="h-1.5 rounded-full bg-white/80 overflow-hidden"><div class="h-full rounded-full bg-' . $color . '-500 transition-all duration-700 ease-out" data-w="' . $pct . '" style="width:0"></div></div>'
+                           . '</div>';
+                    }
+                    $resto = count($items) - $limite;
+                    if ($resto > 0) {
+                        echo '<p class="text-[10px] text-slate-400 font-semibold">+ ' . $resto . ' más…</p>';
+                    }
+                };
+                ?>
+
+                <div class="space-y-4" id="hw-composicion">
+                <?php foreach ($hw_cats as $c):
+                    $k = $c['key'];
+                    $col = $c['color'];
+                    $det = $hw_detalle[$k] ?? ['estado' => [], 'marca' => [], 'sucursal' => [], 'tipo' => []];
+                    $pct_cat = round(($c['total'] / $hw_total_general) * 100);
+                ?>
+                    <div class="hw-item rounded-2xl bg-<?= $col ?>-50/60 border border-<?= $col ?>-100 hover:border-<?= $col ?>-300 hover:shadow-md transition-all duration-300" data-hw="<?= $k ?>">
+                        <button type="button" id="hw-toggle-<?= $k ?>" onclick="toggleHwDetalle('<?= $k ?>')" aria-expanded="false" aria-controls="hw-panel-<?= $k ?>"
+                                class="w-full flex items-center justify-between p-3.5 text-left cursor-pointer group focus:outline-none">
+                            <div class="flex items-center gap-3">
+                                <div class="h-10 w-10 rounded-xl bg-<?= $col ?>-500 text-white flex items-center justify-center text-lg shadow-md shadow-<?= $col ?>-500/20 transition-transform duration-300 group-hover:scale-110">
+                                    <i class="fa-solid <?= $c['icon'] ?>"></i>
+                                </div>
+                                <div>
+                                    <p class="text-xs font-bold text-slate-800"><?= htmlspecialchars($c['titulo']) ?></p>
+                                    <p class="text-[11px] text-slate-500"><?= htmlspecialchars($c['sub']) ?></p>
+                                </div>
                             </div>
-                            <div>
-                                <p class="text-xs font-bold text-slate-800">Laptops Corporativas</p>
-                                <p class="text-[11px] text-slate-500">Portátiles de trabajo</p>
+                            <div class="flex items-center gap-3">
+                                <div class="text-right leading-tight">
+                                    <span class="text-lg font-black text-slate-900 font-mono"><?= $c['total'] ?></span>
+                                    <p class="text-[10px] text-slate-400 font-semibold"><?= $pct_cat ?>%</p>
+                                </div>
+                                <i class="hw-chevron fa-solid fa-chevron-down text-xs text-slate-400 transition-transform duration-300"></i>
+                            </div>
+                        </button>
+
+                        <div id="hw-panel-<?= $k ?>" class="hw-panel overflow-hidden transition-all duration-300 ease-out" style="max-height:0">
+                            <div class="px-3.5 pb-4 pt-1 space-y-4 border-t border-<?= $col ?>-100/80">
+                            <?php if ($c['total'] === 0): ?>
+                                <p class="text-[11px] text-slate-400 text-center py-3">No hay equipos registrados en esta categoría.</p>
+                            <?php else: ?>
+                                <!-- Por Estado -->
+                                <div class="pt-3">
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2"><i class="fa-solid fa-signal mr-1"></i>Por estado</p>
+                                    <div class="flex flex-wrap gap-1.5">
+                                        <?php foreach ($det['estado'] as $est => $cant): ?>
+                                            <span class="px-2.5 py-1 rounded-lg border text-[11px] font-semibold <?= $hw_estado_colores[$est] ?? 'bg-slate-50 text-slate-600 border-slate-200' ?>">
+                                                <?= htmlspecialchars($est) ?> <span class="font-black font-mono ml-0.5"><?= (int) $cant ?></span>
+                                            </span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+
+                                <?php if ($k === 'otros' && count($det['tipo']) > 0): ?>
+                                <!-- Subtipos (solo en Otros) -->
+                                <div>
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2"><i class="fa-solid fa-layer-group mr-1"></i>Por tipo</p>
+                                    <div class="space-y-2"><?php $hw_render_barras($det['tipo'], $c['total'], $col, 6); ?></div>
+                                </div>
+                                <?php endif; ?>
+
+                                <!-- Por Marca -->
+                                <div>
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2"><i class="fa-solid fa-tag mr-1"></i>Top marcas</p>
+                                    <div class="space-y-2"><?php $hw_render_barras($det['marca'], $c['total'], $col); ?></div>
+                                </div>
+
+                                <!-- Por Sucursal -->
+                                <div>
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2"><i class="fa-solid fa-building mr-1"></i>Por sucursal</p>
+                                    <div class="space-y-2"><?php $hw_render_barras($det['sucursal'], $c['total'], $col); ?></div>
+                                </div>
+                            <?php endif; ?>
+
+                                <a href="<?= BASE_URL ?>modules/equipos/index.php?tipo=<?= urlencode($c['filtro']) ?>" id="hw-link-<?= $k ?>"
+                                   class="flex items-center justify-center gap-2 w-full py-2 rounded-xl bg-white border border-<?= $col ?>-200 text-<?= $col ?>-600 hover:bg-<?= $col ?>-500 hover:text-white hover:border-<?= $col ?>-500 text-[11px] font-bold transition-all duration-300">
+                                    Ver en inventario <i class="fa-solid fa-arrow-right text-[10px]"></i>
+                                </a>
                             </div>
                         </div>
-                        <span class="text-lg font-black text-slate-900 font-mono"><?= $laptops_count ?></span>
                     </div>
-
-                    <!-- Desktops -->
-                    <div class="flex items-center justify-between p-3.5 rounded-2xl bg-violet-50/60 border border-violet-100">
-                        <div class="flex items-center gap-3">
-                            <div class="h-10 w-10 rounded-xl bg-violet-600 text-white flex items-center justify-center text-lg shadow-md shadow-violet-500/20">
-                                <i class="fa-solid fa-desktop"></i>
-                            </div>
-                            <div>
-                                <p class="text-xs font-bold text-slate-800">Desktops & Clones</p>
-                                <p class="text-[11px] text-slate-500">Computadoras de escritorio</p>
-                            </div>
-                        </div>
-                        <span class="text-lg font-black text-slate-900 font-mono"><?= $desktops_count ?></span>
-                    </div>
-
-                    <!-- Impresoras -->
-                    <div class="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-100">
-                        <div class="flex items-center gap-3">
-                            <div class="h-10 w-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-lg shadow-md shadow-emerald-500/20">
-                                <i class="fa-solid fa-print"></i>
-                            </div>
-                            <div>
-                                <p class="text-xs font-bold text-slate-800">Impresoras & Térmicas</p>
-                                <p class="text-[11px] text-slate-500">Láser, Inyección y Matricial</p>
-                            </div>
-                        </div>
-                        <span class="text-lg font-black text-slate-900 font-mono"><?= $impresoras_count ?></span>
-                    </div>
-
-                    <!-- Otros / UPS -->
-                    <div class="flex items-center justify-between p-3.5 rounded-2xl bg-amber-50/60 border border-amber-100">
-                        <div class="flex items-center gap-3">
-                            <div class="h-10 w-10 rounded-xl bg-amber-500 text-white flex items-center justify-center text-lg shadow-md shadow-amber-500/20">
-                                <i class="fa-solid fa-plug"></i>
-                            </div>
-                            <div>
-                                <p class="text-xs font-bold text-slate-800">UPS & Energía</p>
-                                <p class="text-[11px] text-slate-500">Respaldo y redes</p>
-                            </div>
-                        </div>
-                        <span class="text-lg font-black text-slate-900 font-mono"><?= $otros_count ?></span>
-                    </div>
+                <?php endforeach; ?>
                 </div>
+
+                <script>
+                    // Acordeón: abre una categoría a la vez y anima las barras al desplegar
+                    function toggleHwDetalle(key) {
+                        document.querySelectorAll('#hw-composicion .hw-item').forEach(function (item) {
+                            var btn = item.querySelector('button[aria-controls]');
+                            var panel = item.querySelector('.hw-panel');
+                            var chev = item.querySelector('.hw-chevron');
+                            var abrir = item.dataset.hw === key && btn.getAttribute('aria-expanded') !== 'true';
+
+                            btn.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+                            chev.classList.toggle('rotate-180', abrir);
+                            item.classList.toggle('shadow-lg', abrir);
+                            panel.style.maxHeight = abrir ? panel.scrollHeight + 'px' : '0';
+
+                            panel.querySelectorAll('[data-w]').forEach(function (bar) {
+                                bar.style.width = '0';
+                                if (abrir) {
+                                    requestAnimationFrame(function () {
+                                        requestAnimationFrame(function () { bar.style.width = bar.dataset.w + '%'; });
+                                    });
+                                }
+                            });
+                        });
+                    }
+                </script>
             </div>
         </div>
     </div>

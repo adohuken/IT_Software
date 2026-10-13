@@ -4,6 +4,13 @@
  * Permite administrar credenciales de equipos, portales web y cuentas M365
  */
 
+// Redirección de compatibilidad: la Bóveda de Portales Web se centralizó en Infraestructura & Redes
+if (isset($_GET['tab']) && $_GET['tab'] === 'web') {
+    require_once __DIR__ . '/../../config/conexion.php';
+    header('Location: ' . BASE_URL . 'modules/infraestructura/index.php?tab=boveda');
+    exit;
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../config/security.php';
 
@@ -338,13 +345,8 @@ foreach ($fichas_raw as $f) {
     <!-- Encabezado de Página -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <?php if ($tab === 'web'): ?>
-                <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Credenciales Web y Portales</h2>
-                <p class="text-slate-500 text-sm">Administración centralizada de accesos a portales web y plataformas externas.</p>
-            <?php else: ?>
-                <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Gestión de Credenciales y Licencias</h2>
-                <p class="text-slate-500 text-sm">Almacén cifrado seguro para accesos locales y cuentas Microsoft 365.</p>
-            <?php endif; ?>
+            <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Gestión de Credenciales y Licencias</h2>
+            <p class="text-slate-500 text-sm">Almacén cifrado seguro para accesos locales de equipos y cuentas Microsoft 365.</p>
         </div>
 
         <!-- Botones de Acción según Pestaña -->
@@ -353,11 +355,6 @@ foreach ($fichas_raw as $f) {
                 <button onclick="abrirNuevaCredencialEquipo()"
                     class="px-4 py-2.5 rounded-xl grad-cyan-blue hover:opacity-90 text-slate-800 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/10 flex items-center gap-2">
                     <i class="fa-solid fa-plus"></i> Nueva Credencial Equipo
-                </button>
-            <?php elseif ($tab === 'web'): ?>
-                <button onclick="abrirModal('modal-web')"
-                    class="px-4 py-2.5 rounded-xl grad-cyan-blue hover:opacity-90 text-slate-800 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/10 flex items-center gap-2">
-                    <i class="fa-solid fa-plus"></i> Nueva Credencial Web
                 </button>
             <?php elseif ($tab === 'm365'): ?>
                 <button onclick="abrirModal('modal-m365')"
@@ -369,7 +366,6 @@ foreach ($fichas_raw as $f) {
     </div>
 
     <!-- Pestañas (Tabs) de navegación de submódulos -->
-    <?php if ($tab !== 'web'): ?>
     <div class="border-b border-slate-200 flex gap-1 flex-wrap">
         <a href="?tab=equipos"
             class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'equipos') ? 'border-cyan-400 text-slate-800 bg-white/5 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
@@ -384,7 +380,6 @@ foreach ($fichas_raw as $f) {
             <i class="fa-solid fa-id-card text-xs <?= ($tab === 'fichas') ? 'text-violet-600' : '' ?>"></i> Fichas Consolidadas
         </a>
     </div>
-    <?php endif; ?>
 
     <!-- Barra de Filtros Dinámicos (Persistente) -->
     <div
@@ -531,115 +526,7 @@ foreach ($fichas_raw as $f) {
             </div>
         </div>
 
-        <!-- 2. TABLA CREDENCIALES WEB -->
-    <?php elseif ($tab === 'web'): ?>
-        <div class="mb-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 rounded-2xl shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
-                <div class="h-10 w-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-lg shrink-0">
-                    <i class="fa-solid fa-network-wired"></i>
-                </div>
-                <div>
-                    <h4 class="font-black text-sm">Bóveda Cifrada de Accesos IT & Redes</h4>
-                    <p class="text-xs text-blue-100">Las credenciales administrativas de portales web y equipos de red cuentan con su propio módulo independiente estructurado.</p>
-                </div>
-            </div>
-            <a href="<?= BASE_URL ?>modules/infraestructura/index.php?tab=boveda" class="px-4 py-2 rounded-xl bg-white text-blue-700 font-bold text-xs shadow-md hover:bg-blue-50 transition shrink-0 inline-flex items-center gap-2">
-                <i class="fa-solid fa-vault"></i> Ir al Módulo de Infraestructura & Redes <i class="fa-solid fa-arrow-right text-[10px]"></i>
-            </a>
-        </div>
-        <div class="glass-panel rounded-2xl overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left modern-table text-sm">
-                    <thead>
-                        <tr>
-                            <th class="py-3 px-3 text-center w-12">#</th>
-                            <th class="py-3 px-4">Plataforma / Portal</th>
-                            <th class="py-3 px-4">Enlace</th>
-                            <th class="py-3 px-4">Usuario</th>
-                            <th class="py-3 px-4">Contraseña Cifrada</th>
-                            <th class="py-3 px-4">Notas</th>
-                            <th class="py-3 px-4 text-center">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($cred_web)): ?>
-                            <tr>
-                                <td colspan="7" class="text-center py-10 text-slate-400">
-                                    No hay credenciales web registradas.
-                                </td>
-                            </tr>
-                        <?php else: ?>
-                            <?php
-                            $num_web = 1;
-                            foreach ($cred_web as $cw): ?>
-                                <tr class="item-fila hover:bg-cyan-50/60 cursor-pointer transition border-b border-slate-100 group"
-                                    data-empresa=""
-                                    data-search-text="<?= htmlspecialchars(strtolower($cw['plataforma'] . ' ' . $cw['url_acceso'] . ' ' . $cw['usuario'] . ' ' . ($cw['notas'] ?? ''))) ?>"
-                                    onclick='verDetalleCredWeb(<?= json_encode($cw, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
-                                    <!-- # Numeración -->
-                                    <td
-                                        class="py-3 px-3 text-center text-xs font-mono font-bold text-slate-400 group-hover:text-cyan-600 num-cell">
-                                        <?= $num_web++ ?>
-                                    </td>
-                                    <td
-                                        class="py-3 px-4 font-semibold text-slate-800 group-hover:text-cyan-700 transition flex items-center gap-1.5">
-                                        <i class="fa-solid fa-globe text-xs text-slate-400 group-hover:text-cyan-600"></i>
-                                        <?= htmlspecialchars($cw['plataforma']) ?>
-                                    </td>
-                                    <td class="py-3 px-4 font-mono text-xs" onclick="event.stopPropagation();">
-                                        <?php if (!empty($cw['url_acceso'])): ?>
-                                            <a href="<?= htmlspecialchars($cw['url_acceso']) ?>" target="_blank"
-                                                onclick="event.stopPropagation();"
-                                                class="text-cyan-600 hover:underline inline-flex items-center max-w-[200px] truncate"
-                                                title="<?= htmlspecialchars($cw['url_acceso']) ?>">
-                                                <?= htmlspecialchars($cw['url_acceso']) ?> <i
-                                                    class="fa-solid fa-arrow-up-right-from-square text-[10px] shrink-0 ml-1"></i>
-                                            </a>
-                                        <?php else: ?>
-                                            <span class="text-slate-400">-</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="py-3 px-4 font-mono text-xs text-slate-700 font-bold">
-                                        <?= htmlspecialchars($cw['usuario']) ?>
-                                    </td>
-                                    <td class="py-3 px-4" onclick="event.stopPropagation();">
-                                        <div class="flex items-center gap-2">
-                                            <span class="password-text text-xs text-slate-400 font-mono"
-                                                data-password="<?= htmlspecialchars($cw['pass_plain']) ?>">••••••••</span>
-                                            <button onclick="event.stopPropagation(); togglePasswordInline(this)"
-                                                class="text-slate-500 hover:text-cyan-600 text-xs transition"
-                                                title="Revelar Contraseña">
-                                                <i class="fa-regular fa-eye"></i>
-                                            </button>
-                                            <button onclick="event.stopPropagation(); copyPasswordInline(this)"
-                                                class="text-slate-500 hover:text-emerald-600 text-xs transition"
-                                                title="Copiar Contraseña">
-                                                <i class="fa-regular fa-copy"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                    <td class="py-3 px-4 text-xs text-slate-500 max-w-[250px] truncate"
-                                        title="<?= htmlspecialchars($cw['notas'] ?? '') ?>">
-                                        <?= htmlspecialchars($cw['notas'] ?? '-') ?>
-                                    </td>
-                                    <td class="py-3 px-4 text-center">
-                                        <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
-                                            <button type="button" onclick="event.stopPropagation(); confirmarEliminar('guardar.php?action=delete_web&id=<?= $cw['id'] ?>', 'esta credencial web')"
-                                                class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition"
-                                                title="Eliminar">
-                                                <i class="fa-regular fa-trash-can text-xs"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- 3. TABLA CUENTAS MICROSOFT 365 -->
+        <!-- 2. TABLA CUENTAS MICROSOFT 365 -->
     <?php elseif ($tab === 'm365'): ?>
         <div class="glass-panel rounded-2xl overflow-hidden">
             <div class="overflow-x-auto">
@@ -1223,68 +1110,7 @@ foreach ($fichas_raw as $f) {
     </div>
 </div>
 
-<!-- 2. Modal Credencial Web -->
-<div id="modal-web" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
-    <div
-        class="bg-white border border-slate-200 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-fade-in">
-        <div class="p-6 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="font-bold text-slate-800 flex items-center gap-2">
-                <i class="fa-solid fa-globe text-cyan-400"></i> Nueva Credencial Web / Portal
-            </h3>
-            <button onclick="cerrarModal('modal-web')" class="text-slate-400 hover:text-slate-800"><i
-                    class="fa-solid fa-xmark"></i></button>
-        </div>
-        <form autocomplete="off" action="guardar.php?action=add_web" method="POST" class="p-6 space-y-4">
-            <div>
-                <label for="web_plat"
-                    class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Plataforma / Nombre
-                    del Servicio</label>
-                <input type="text" name="plataforma" id="web_plat" required
-                    placeholder="Ej: FortiCloud, Microsoft Partner Center"
-                    class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
-            </div>
-            <div>
-                <label for="web_url"
-                    class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">URL de
-                    Acceso</label>
-                <input type="url" name="url_acceso" id="web_url" placeholder="https://admin.ejemplo.com"
-                    class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label for="web_usr"
-                        class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Usuario /
-                        Email</label>
-                    <input type="text" name="usuario" id="web_usr" required placeholder="soporte@empresa.com"
-                        class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
-                </div>
-                <div>
-                    <label for="web_pass_inp"
-                        class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Contraseña</label>
-                    <input type="password" name="password" id="web_pass_inp" required placeholder="••••••••"
-                        class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
-                </div>
-            </div>
-            <div>
-                <label for="web_notes"
-                    class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Notas
-                    descriptivas</label>
-                <textarea name="notas" id="web_notes" rows="2"
-                    placeholder="Códigos MFA de recuperación, responsables, etc..."
-                    class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400"></textarea>
-            </div>
-            <div class="pt-4 flex gap-3">
-                <button type="button" onclick="cerrarModal('modal-web')"
-                    class="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-800 font-semibold text-sm transition border border-slate-200">Cancelar</button>
-                <button type="submit"
-                    class="flex-1 py-3 rounded-xl grad-cyan-blue text-slate-800 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/20 hover:opacity-90 transition">Guardar
-                    Credencial</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- 3. Modal Cuenta Microsoft 365 -->
+<!-- 2. Modal Cuenta Microsoft 365 -->
 <div id="modal-m365"
     class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
     <div

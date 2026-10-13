@@ -583,6 +583,37 @@ try {
             header('Location: index.php');
             exit;
         }
+
+        // 3.5 Cambiar Estado Directo (Disponible / Stock, Mantenimiento)
+        if ($action === 'cambiar_estado') {
+            $equipo_id = (int)($_POST['equipo_id'] ?? 0);
+            $nuevo_estado = $_POST['nuevo_estado'] ?? '';
+            $motivo = trim($_POST['motivo'] ?? '');
+
+            if ($equipo_id > 0 && in_array($nuevo_estado, ['Disponible', 'Mantenimiento', 'Asignado', 'De Baja'])) {
+                $db->beginTransaction();
+
+                if (in_array($nuevo_estado, ['Disponible', 'Mantenimiento', 'De Baja'])) {
+                    $stmt_close = $db->prepare("
+                        UPDATE asignaciones 
+                        SET fecha_devolucion = CURDATE(), 
+                            condicion_devolucion = ?,
+                            recibido_por = ?
+                        WHERE equipo_id = ? AND fecha_devolucion IS NULL
+                    ");
+                    $descCierre = !empty($motivo) ? $motivo : ($nuevo_estado === 'Mantenimiento' ? 'Ingreso a Mantenimiento' : 'Liberado a Stock / Bodega');
+                    $stmt_close->execute([$descCierre, $_SESSION['user_nombre'] ?? 'Sistema', $equipo_id]);
+                }
+
+                $stmt_up = $db->prepare("UPDATE equipos SET estado = ? WHERE id = ?");
+                $stmt_up->execute([$nuevo_estado, $equipo_id]);
+
+                $db->commit();
+                $_SESSION['flash_success'] = "Estado del equipo actualizado a '{$nuevo_estado}'.";
+            }
+            header('Location: index.php');
+            exit;
+        }
     } else {
         // Acciones GET
         

@@ -97,13 +97,6 @@ $menu_items = [
                 'icono'  => 'fa-solid fa-desktop',
                 'active' => (strpos($uri, '/credenciales/') !== false && ($current_tab === 'equipos' || empty($current_tab)))
             ],
-            'web' => [
-                'titulo' => 'Credenciales Web y Portales',
-                'label'  => 'Web y Portales',
-                'url'    => BASE_URL . 'modules/credenciales/index.php?tab=web',
-                'icono'  => 'fa-solid fa-globe',
-                'active' => (strpos($uri, '/credenciales/') !== false && $current_tab === 'web')
-            ],
             'm365' => [
                 'titulo' => 'Microsoft 365 / Facturación',
                 'label'  => 'Microsoft 365 / Facturación',
@@ -287,7 +280,6 @@ if (isset($_SESSION['user_nombre'])) {
                         <?php endif; ?>
                     <?php endforeach; ?>
                 </nav>
->>>>>>> Stashed changes
             </div>
 
             <!-- USUARIO EN FOOTER DE SIDEBAR -->

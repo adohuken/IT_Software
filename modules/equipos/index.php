@@ -12,6 +12,8 @@ $db = Database::getConexion();
 // Obtener filtros desde URL
 $filtro_sucursal = $_GET['sucursal_id'] ?? '';
 $filtro_depto = $_GET['departamento'] ?? '';
+$filtro_tipo = $_GET['tipo'] ?? ''; // 'Laptop', 'Desktop', 'Impresora' o '__otros__' (desde el dashboard)
+$filtro_estado = $_GET['estado'] ?? ''; // 'Asignado', 'Disponible', 'Mantenimiento', 'De Baja'
 
 // Cargar catálogos limpios y agrupados por Empresa para filtros
 $sucursales = $db->query("
@@ -31,6 +33,37 @@ $departamentos = $db->query("
 
 $empleados = $db->query("SELECT id, nombre, cargo, departamento FROM empleados WHERE estado = 'Activo' ORDER BY nombre")->fetchAll();
 
+// Métricas de inventario para resumen ejecutivo (considerando sucursal si está filtrada)
+$stats_sql = "
+    SELECT 
+        COUNT(CASE WHEN estado != 'De Baja' THEN 1 END) as total_activos,
+        COUNT(CASE WHEN estado = 'Asignado' THEN 1 END) as total_asignados,
+        COUNT(CASE WHEN estado = 'Disponible' THEN 1 END) as total_disponibles,
+        COUNT(CASE WHEN estado = 'Mantenimiento' THEN 1 END) as total_mantenimiento,
+        COUNT(CASE WHEN estado = 'De Baja' THEN 1 END) as total_baja,
+        COUNT(CASE WHEN tipo = 'Laptop' AND estado != 'De Baja' THEN 1 END) as total_laptops,
+        COUNT(CASE WHEN tipo = 'Desktop' AND estado != 'De Baja' THEN 1 END) as total_desktops,
+        COUNT(CASE WHEN tipo NOT IN ('Laptop', 'Desktop') AND estado != 'De Baja' THEN 1 END) as total_otros
+    FROM equipos e
+    WHERE 1=1
+";
+$stats_params = [];
+if (!empty($filtro_sucursal)) {
+    $stats_sql .= " AND e.sucursal_id = ?";
+    $stats_params[] = (int)$filtro_sucursal;
+}
+$stmt_stats = $db->prepare($stats_sql);
+$stmt_stats->execute($stats_params);
+$stats = $stmt_stats->fetch(PDO::FETCH_ASSOC);
+
+$tot_activos = (int)($stats['total_activos'] ?? 0);
+$tot_asig    = (int)($stats['total_asignados'] ?? 0);
+$tot_disp    = (int)($stats['total_disponibles'] ?? 0);
+$tot_mant    = (int)($stats['total_mantenimiento'] ?? 0);
+$tot_baja    = (int)($stats['total_baja'] ?? 0);
+$pct_asig    = $tot_activos > 0 ? round(($tot_asig / $tot_activos) * 100) : 0;
+$pct_disp    = $tot_activos > 0 ? round(($tot_disp / $tot_activos) * 100) : 0;
+
 // Construir consulta filtrada de equipos con datos completos de credenciales y asignación
 $sql = "
     SELECT e.*, s.nombre AS sucursal_nombre, s.ubicacion AS sucursal_ubicacion,
@@ -43,10 +76,22 @@ $sql = "
     LEFT JOIN asignaciones a ON a.equipo_id = e.id AND a.fecha_devolucion IS NULL
     LEFT JOIN empleados emp ON a.empleado_id = emp.id
     LEFT JOIN credenciales_equipos ce ON ce.equipo_id = e.id
-    WHERE e.estado != 'De Baja'
+    WHERE 1=1
 ";
 
 $params = [];
+
+if ($filtro_estado === 'De Baja') {
+    $sql .= " AND e.estado = 'De Baja'";
+} else {
+    if (!empty($filtro_estado)) {
+        $sql .= " AND e.estado = ?";
+        $params[] = $filtro_estado;
+    } else {
+        $sql .= " AND e.estado != 'De Baja'";
+    }
+}
+
 if (!empty($filtro_sucursal)) {
     $sql .= " AND e.sucursal_id = ?";
     $params[] = (int)$filtro_sucursal;
@@ -54,6 +99,14 @@ if (!empty($filtro_sucursal)) {
 if (!empty($filtro_depto)) {
     $sql .= " AND emp.departamento = ?";
     $params[] = $filtro_depto;
+}
+if (!empty($filtro_tipo)) {
+    if ($filtro_tipo === '__otros__') {
+        $sql .= " AND e.tipo NOT IN ('Laptop', 'Desktop', 'Impresora')";
+    } else {
+        $sql .= " AND e.tipo = ?";
+        $params[] = $filtro_tipo;
+    }
 }
 
 $sql .= " ORDER BY e.tipo, e.marca, e.modelo";
@@ -118,9 +171,145 @@ if ($ver_historial_id > 0) {
         </div>
     </div>
 
+    <!-- Tarjetas de Métricas Ejecutivas de Inventario (KPIs) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Tarjeta 1: Total Activos -->
+        <div onclick="filtrarPorEstado('')" 
+             class="bg-white rounded-2xl p-5 border <?= empty($filtro_estado) ? 'border-cyan-500 ring-2 ring-cyan-500/20 shadow-md' : 'border-slate-200/90 shadow-sm hover:border-slate-300 hover:shadow-md' ?> transition-all cursor-pointer group flex flex-col justify-between">
+            <div class="flex items-start justify-between">
+                <div>
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Total Hardware</span>
+                    <h3 class="text-3xl font-extrabold text-slate-800 mt-1"><?= $tot_activos ?></h3>
+                </div>
+                <div class="h-12 w-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-600 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                    <i class="fa-solid fa-boxes-stacked"></i>
+                </div>
+            </div>
+            <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                <span class="truncate"><?= $stats['total_laptops'] ?> Laptops • <?= $stats['total_desktops'] ?> Desktops</span>
+                <span class="font-bold text-cyan-600 shrink-0">Ver todos &rarr;</span>
+            </div>
+        </div>
+
+        <!-- Tarjeta 2: Asignados -->
+        <div onclick="filtrarPorEstado('Asignado')" 
+             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Asignado' ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md' : 'border-slate-200/90 shadow-sm hover:border-blue-300 hover:shadow-md' ?> transition-all cursor-pointer group flex flex-col justify-between">
+            <div class="flex items-start justify-between">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Asignados</span>
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200"><?= $pct_asig ?>%</span>
+                    </div>
+                    <h3 class="text-3xl font-extrabold text-blue-600 mt-1"><?= $tot_asig ?></h3>
+                </div>
+                <div class="h-12 w-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-600 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                    <i class="fa-solid fa-user-check"></i>
+                </div>
+            </div>
+            <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                <span>En uso por colaboradores</span>
+                <span class="font-bold text-blue-600 shrink-0">Filtrar &rarr;</span>
+            </div>
+        </div>
+
+        <!-- Tarjeta 3: Disponibles en Stock (Sin Asignar) -->
+        <div onclick="filtrarPorEstado('Disponible')" 
+             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Disponible' ? 'border-emerald-500 ring-2 ring-emerald-500/20 shadow-md' : 'border-slate-200/90 shadow-sm hover:border-emerald-300 hover:shadow-md' ?> transition-all cursor-pointer group flex flex-col justify-between">
+            <div class="flex items-start justify-between">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">En Stock (Libres)</span>
+                        <?php if ($tot_disp === 0): ?>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Sin Reserva</span>
+                        <?php else: ?>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"><?= $pct_disp ?>% Libre</span>
+                        <?php endif; ?>
+                    </div>
+                    <h3 class="text-3xl font-extrabold <?= $tot_disp > 0 ? 'text-emerald-600' : 'text-slate-400' ?> mt-1"><?= $tot_disp ?></h3>
+                </div>
+                <div class="h-12 w-12 rounded-2xl <?= $tot_disp > 0 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600' : 'bg-slate-100 border-slate-200 text-slate-400' ?> border flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                    <i class="fa-solid fa-box-open"></i>
+                </div>
+            </div>
+            <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                <span><?= $tot_disp > 0 ? 'Listos para entregar' : 'Requiere reabastecer' ?></span>
+                <span class="font-bold text-emerald-600 shrink-0">Filtrar &rarr;</span>
+            </div>
+        </div>
+
+        <!-- Tarjeta 4: En Mantenimiento -->
+        <div onclick="filtrarPorEstado('Mantenimiento')" 
+             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Mantenimiento' ? 'border-amber-500 ring-2 ring-amber-500/20 shadow-md' : 'border-slate-200/90 shadow-sm hover:border-amber-300 hover:shadow-md' ?> transition-all cursor-pointer group flex flex-col justify-between">
+            <div class="flex items-start justify-between">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">En Mantenimiento</span>
+                        <?php if ($tot_mant > 0): ?>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">En Taller</span>
+                        <?php endif; ?>
+                    </div>
+                    <h3 class="text-3xl font-extrabold <?= $tot_mant > 0 ? 'text-amber-600' : 'text-slate-400' ?> mt-1"><?= $tot_mant ?></h3>
+                </div>
+                <div class="h-12 w-12 rounded-2xl <?= $tot_mant > 0 ? 'bg-amber-500/10 border-amber-500/20 text-amber-600' : 'bg-slate-100 border-slate-200 text-slate-400' ?> border flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                    <i class="fa-solid fa-screwdriver-wrench"></i>
+                </div>
+            </div>
+            <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                <span>Revisión técnica o daños</span>
+                <span class="font-bold text-amber-600 shrink-0">Filtrar &rarr;</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pestañas Rápidas de Filtrado por Estado (Pill Tabs) -->
+    <div class="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200">
+        <div class="flex flex-wrap items-center gap-2">
+            <button type="button" onclick="filtrarPorEstado('')" 
+                    class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 <?= empty($filtro_estado) ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100' ?>">
+                <i class="fa-solid fa-list-ul text-[11px]"></i>
+                <span>Todos</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] <?= empty($filtro_estado) ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700' ?>"><?= $tot_activos ?></span>
+            </button>
+
+            <button type="button" onclick="filtrarPorEstado('Asignado')" 
+                    class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 <?= $filtro_estado === 'Asignado' ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20' : 'text-slate-600 hover:bg-blue-50 hover:text-blue-600' ?>">
+                <span class="h-2 w-2 rounded-full <?= $filtro_estado === 'Asignado' ? 'bg-white' : 'bg-blue-500' ?>"></span>
+                <span>Asignados</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] <?= $filtro_estado === 'Asignado' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700' ?>"><?= $tot_asig ?></span>
+            </button>
+
+            <button type="button" onclick="filtrarPorEstado('Disponible')" 
+                    class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 <?= $filtro_estado === 'Disponible' ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-500/20' : 'text-slate-600 hover:bg-emerald-50 hover:text-emerald-600' ?>">
+                <span class="h-2 w-2 rounded-full <?= $filtro_estado === 'Disponible' ? 'bg-white' : 'bg-emerald-500' ?>"></span>
+                <span>En Stock / Libres</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] <?= $filtro_estado === 'Disponible' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700' ?>"><?= $tot_disp ?></span>
+            </button>
+
+            <button type="button" onclick="filtrarPorEstado('Mantenimiento')" 
+                    class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 <?= $filtro_estado === 'Mantenimiento' ? 'bg-amber-600 text-white shadow-sm shadow-amber-500/20' : 'text-slate-600 hover:bg-amber-50 hover:text-amber-600' ?>">
+                <span class="h-2 w-2 rounded-full <?= $filtro_estado === 'Mantenimiento' ? 'bg-white' : 'bg-amber-500' ?>"></span>
+                <span>En Mantenimiento</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] <?= $filtro_estado === 'Mantenimiento' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700' ?>"><?= $tot_mant ?></span>
+            </button>
+
+            <?php if ($tot_baja > 0 || $filtro_estado === 'De Baja'): ?>
+            <button type="button" onclick="filtrarPorEstado('De Baja')" 
+                    class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 <?= $filtro_estado === 'De Baja' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-500 hover:bg-rose-50 hover:text-rose-600' ?>">
+                <span class="h-2 w-2 rounded-full <?= $filtro_estado === 'De Baja' ? 'bg-white' : 'bg-rose-400' ?>"></span>
+                <span>De Baja</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] <?= $filtro_estado === 'De Baja' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700' ?>"><?= $tot_baja ?></span>
+            </button>
+            <?php endif; ?>
+        </div>
+
+        <div class="text-xs text-slate-400 font-medium px-2">
+            Mostrando: <span class="font-bold text-slate-700"><?= count($equipos) ?></span> equipos
+        </div>
+    </div>
+
     <!-- Barra de Filtros -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200">
-        <form autocomplete="off" method="GET" class="flex flex-col lg:flex-row lg:items-end gap-4">
+        <form id="form-filtros-equipos" autocomplete="off" method="GET" class="flex flex-col lg:flex-row lg:items-end gap-4">
             <div class="flex-1">
                 <label for="buscar_equipo" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Búsqueda Rápida</label>
                 <div class="relative">
@@ -129,6 +318,16 @@ if ($ver_historial_id > 0) {
                         <i class="fa-solid fa-magnifying-glass text-xs"></i>
                     </span>
                 </div>
+            </div>
+            <div class="w-full lg:w-48">
+                <label for="f_estado" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Estado</label>
+                <select autocomplete="off" name="estado" id="f_estado" onchange="this.form.submit()" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-3 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 cursor-pointer font-medium">
+                    <option value="">-- Todos los Estados --</option>
+                    <option value="Asignado" <?= ($filtro_estado === 'Asignado') ? 'selected' : '' ?>>🔵 Asignados (<?= $tot_asig ?>)</option>
+                    <option value="Disponible" <?= ($filtro_estado === 'Disponible') ? 'selected' : '' ?>>🟢 En Stock (<?= $tot_disp ?>)</option>
+                    <option value="Mantenimiento" <?= ($filtro_estado === 'Mantenimiento') ? 'selected' : '' ?>>🟡 Mantenimiento (<?= $tot_mant ?>)</option>
+                    <option value="De Baja" <?= ($filtro_estado === 'De Baja') ? 'selected' : '' ?>>🔴 De Baja (<?= $tot_baja ?>)</option>
+                </select>
             </div>
             <div class="flex-1">
                 <label for="f_suc" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Filtrar por Sucursal</label>
@@ -158,10 +357,16 @@ if ($ver_historial_id > 0) {
                 </select>
             </div>
             <div class="flex gap-2 shrink-0">
+                <?php if (!empty($filtro_tipo)): ?>
+                    <input type="hidden" name="tipo" value="<?= htmlspecialchars($filtro_tipo) ?>">
+                    <span id="chip-filtro-tipo" class="px-3 py-2.5 rounded-xl bg-violet-50 border border-violet-200 text-violet-600 text-xs font-semibold flex items-center gap-1.5">
+                        <i class="fa-solid fa-microchip"></i> <?= htmlspecialchars($filtro_tipo === '__otros__' ? 'Otros' : $filtro_tipo) ?>
+                    </span>
+                <?php endif; ?>
                 <button type="submit" class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs border border-slate-200 flex items-center gap-1.5 transition">
                     <i class="fa-solid fa-filter"></i> Aplicar
                 </button>
-                <?php if (!empty($filtro_sucursal) || !empty($filtro_depto)): ?>
+                <?php if (!empty($filtro_sucursal) || !empty($filtro_depto) || !empty($filtro_tipo) || !empty($filtro_estado)): ?>
                     <a href="index.php" class="px-5 py-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 hover:bg-rose-500/20 text-xs font-semibold flex items-center gap-1.5 transition">
                         <i class="fa-solid fa-xmark"></i> Limpiar
                     </a>
@@ -325,13 +530,23 @@ if ($ver_historial_id > 0) {
 
                                 <!-- Colaborador -->
                                 <td class="py-3.5 px-4 text-xs font-semibold text-slate-800">
-                                    <?php if (!empty($eq['empleado_nombre'])): ?>
+                                    <?php if ($eq['estado'] === 'Disponible'): ?>
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-bold text-xs">
+                                            <i class="fa-solid fa-box text-emerald-500 text-[10px]"></i> En Stock / Libre
+                                        </span>
+                                    <?php elseif ($eq['estado'] === 'Mantenimiento'): ?>
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200/80 font-bold text-xs">
+                                            <i class="fa-solid fa-screwdriver-wrench text-amber-500 text-[10px]"></i> En Taller
+                                        </span>
+                                    <?php elseif (!empty($eq['empleado_nombre'])): ?>
                                         <div class="flex items-center gap-1.5">
-                                            <i class="fa-regular fa-user text-slate-400 text-[11px]"></i>
-                                            <?= htmlspecialchars($eq['empleado_nombre']) ?>
+                                            <i class="fa-regular fa-user text-blue-500 text-[11px]"></i>
+                                            <span class="font-bold text-slate-800"><?= htmlspecialchars($eq['empleado_nombre']) ?></span>
                                         </div>
                                     <?php else: ?>
-                                        <span class="text-slate-400 italic">Sin Asignar</span>
+                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500 text-xs italic">
+                                            Sin Asignar
+                                        </span>
                                     <?php endif; ?>
                                 </td>
 
@@ -395,9 +610,23 @@ if ($ver_historial_id > 0) {
 
                                 <!-- Estado -->
                                 <td class="py-3.5 px-4 text-center">
-                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold <?= $badge ?>">
-                                        <?= $eq['estado'] ?>
-                                    </span>
+                                    <?php if ($eq['estado'] === 'Disponible'): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Disponible
+                                        </span>
+                                    <?php elseif ($eq['estado'] === 'Asignado'): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                            <span class="h-1.5 w-1.5 rounded-full bg-blue-500"></span> Asignado
+                                        </span>
+                                    <?php elseif ($eq['estado'] === 'Mantenimiento'): ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                            <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span> Taller
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                            <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span> De Baja
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
 
                                 <!-- Acciones -->
@@ -407,23 +636,36 @@ if ($ver_historial_id > 0) {
                                         
                                         <?php if (!$isInfra): ?>
                                             <!-- Ver Historial -->
-                                            <a href="?history_id=<?= $eq['id'] ?><?= !empty($filtro_sucursal)?'&sucursal_id='.$filtro_sucursal:'' ?><?= !empty($filtro_depto)?'&departamento='.$filtro_depto:'' ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800 transition" title="Ver Historial Asignaciones">
+                                            <a href="?history_id=<?= $eq['id'] ?><?= !empty($filtro_sucursal)?'&sucursal_id='.$filtro_sucursal:'' ?><?= !empty($filtro_depto)?'&departamento='.$filtro_depto:'' ?><?= !empty($filtro_estado)?'&estado='.$filtro_estado:'' ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800 transition" title="Ver Historial Asignaciones">
                                                 <i class="fa-regular fa-clock text-xs"></i>
                                             </a>
                                             
                                             <?php if ($eq['estado'] === 'Disponible'): ?>
                                                 <!-- Asignar Hardware -->
-                                                <button onclick="event.stopPropagation(); abrirAsignar('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>')" class="h-8 w-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center text-slate-500 hover:text-emerald-600 transition" title="Asignar Equipo">
+                                                <button onclick="event.stopPropagation(); abrirAsignar('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>')" class="h-8 w-8 rounded-lg hover:bg-emerald-50 text-emerald-600 flex items-center justify-center transition" title="Asignar a Colaborador">
                                                     <i class="fa-solid fa-user-plus text-xs"></i>
+                                                </button>
+                                                <!-- Enviar a Mantenimiento -->
+                                                <button onclick="event.stopPropagation(); abrirCambiarEstado('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>', 'Mantenimiento')" class="h-8 w-8 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 flex items-center justify-center transition" title="Enviar a Mantenimiento">
+                                                    <i class="fa-solid fa-wrench text-xs"></i>
                                                 </button>
                                             <?php elseif ($eq['estado'] === 'Asignado'): ?>
                                                 <!-- Imprimir Constancia -->
-                                                <a href="imprimir_asignacion.php?id=<?= $eq['asignacion_id'] ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-indigo-50 flex items-center justify-center text-slate-500 hover:text-indigo-600 transition" title="Imprimir Constancia">
+                                                <a href="imprimir_asignacion.php?id=<?= $eq['asignacion_id'] ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition" title="Imprimir Constancia">
                                                     <i class="fa-solid fa-print text-xs"></i>
                                                 </a>
                                                 <!-- Retornar / Devolver Hardware -->
-                                                <button onclick="event.stopPropagation(); abrirDevolver('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>', '<?= $eq['asignacion_id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-amber-50 flex items-center justify-center text-slate-500 hover:text-amber-600 transition" title="Registrar Devolución">
+                                                <button onclick="event.stopPropagation(); abrirDevolver('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>', '<?= $eq['asignacion_id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-600 flex items-center justify-center transition" title="Registrar Devolución a Stock">
                                                     <i class="fa-solid fa-arrow-rotate-left text-xs"></i>
+                                                </button>
+                                                <!-- Enviar a Mantenimiento -->
+                                                <button onclick="event.stopPropagation(); abrirCambiarEstado('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>', 'Mantenimiento')" class="h-8 w-8 rounded-lg hover:bg-amber-50 text-slate-400 hover:text-amber-600 flex items-center justify-center transition" title="Enviar a Mantenimiento">
+                                                    <i class="fa-solid fa-wrench text-xs"></i>
+                                                </button>
+                                            <?php elseif ($eq['estado'] === 'Mantenimiento'): ?>
+                                                <!-- Reincorporar a Stock -->
+                                                <button onclick="event.stopPropagation(); abrirCambiarEstado('<?= $eq['id'] ?>', '<?= htmlspecialchars($eq['marca'].' '.$eq['modelo']) ?>', 'Disponible')" class="h-8 w-8 rounded-lg hover:bg-emerald-50 text-emerald-600 flex items-center justify-center transition" title="Finalizar Mantenimiento y Regresar a Stock">
+                                                    <i class="fa-solid fa-circle-check text-xs"></i>
                                                 </button>
                                             <?php endif; ?>
                                         <?php endif; ?>
@@ -765,6 +1007,7 @@ if ($ver_historial_id > 0) {
 </div>
 
 <!-- 5. Modal Dar de Baja Equipo -->
+<!-- 5. Modal Dar de Baja Equipo -->
 <div id="modal-baja-equipo" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
     <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl animate-fade-in text-center p-8">
         <div class="h-16 w-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
@@ -776,6 +1019,41 @@ if ($ver_historial_id > 0) {
             <button type="button" onclick="cerrarModal('modal-baja-equipo')" class="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition">Cancelar</button>
             <a id="btn_confirmar_baja" href="#" class="flex-1 py-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm transition shadow-lg shadow-rose-500/30 flex items-center justify-center">Sí, dar de baja</a>
         </div>
+    </div>
+</div>
+
+<!-- 6. Modal Cambiar Estado Rápido (Disponible / Mantenimiento) -->
+<div id="modal-cambiar-estado" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center hidden p-4">
+    <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in">
+        <div class="p-6 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-sliders text-cyan-600"></i> Gestión de Estado del Activo
+            </h3>
+            <button onclick="cerrarModal('modal-cambiar-estado')" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form autocomplete="off" action="guardar.php?action=cambiar_estado" method="POST" class="p-6 space-y-4">
+            <input type="hidden" name="equipo_id" id="ce_eq_id">
+            <div>
+                <label class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Activo</label>
+                <div id="ce_eq_label" class="text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-3 mt-1 font-mono"></div>
+            </div>
+            <div>
+                <label for="ce_nuevo_estado" class="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-2">Nuevo Estado</label>
+                <select name="nuevo_estado" id="ce_nuevo_estado" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:border-cyan-400">
+                    <option value="Disponible">🟢 Disponible (En Stock / Bodega)</option>
+                    <option value="Mantenimiento">🟡 En Mantenimiento / Taller</option>
+                </select>
+                <p class="text-[11px] text-slate-400 mt-1">Si el equipo estaba asignado a un colaborador, su asignación se cerrará automáticamente.</p>
+            </div>
+            <div>
+                <label for="ce_motivo" class="text-xs font-semibold text-slate-600 uppercase tracking-wider block mb-2">Detalle o Motivo (Opcional)</label>
+                <textarea name="motivo" id="ce_motivo" rows="2" placeholder="Ej: Cambio de batería, mantenimiento preventivo, liberado a bodega..." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:border-cyan-400"></textarea>
+            </div>
+            <div class="pt-2 flex gap-3">
+                <button type="button" onclick="cerrarModal('modal-cambiar-estado')" class="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition">Cancelar</button>
+                <button type="submit" class="flex-1 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs shadow-md transition">Actualizar Estado</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -799,6 +1077,31 @@ if ($ver_historial_id > 0) {
     function confirmarBaja(id) {
         document.getElementById('btn_confirmar_baja').href = 'guardar.php?action=baja&id=' + id;
         abrirModal('modal-baja-equipo');
+    }
+
+    function abrirCambiarEstado(eq_id, name, estadoSugerido) {
+        document.getElementById('ce_eq_id').value = eq_id;
+        document.getElementById('ce_eq_label').innerText = name;
+        if (estadoSugerido) {
+            document.getElementById('ce_nuevo_estado').value = estadoSugerido;
+        }
+        abrirModal('modal-cambiar-estado');
+    }
+
+    function filtrarPorEstado(estado) {
+        const sel = document.getElementById('f_estado');
+        if (sel) {
+            sel.value = estado;
+            sel.form.submit();
+        } else {
+            const url = new URL(window.location.href);
+            if (estado) {
+                url.searchParams.set('estado', estado);
+            } else {
+                url.searchParams.delete('estado');
+            }
+            window.location.href = url.toString();
+        }
     }
 
     function verDetalleEquipo(eq) {
@@ -843,7 +1146,7 @@ if ($ver_historial_id > 0) {
 
         // Asignación
         const secAsig = document.getElementById('det_sec_asignacion');
-        if (eq.empleado_nombre) {
+        if (eq.empleado_nombre && eq.estado === 'Asignado') {
             secAsig.classList.remove('hidden');
             document.getElementById('det_emp_nombre').innerText = eq.empleado_nombre;
             document.getElementById('det_emp_cargo_depto').innerText = (eq.empleado_cargo || '') + ' • ' + (eq.empleado_depto || '');
@@ -1007,7 +1310,7 @@ if ($ver_historial_id > 0) {
 
     // Mover todos los modales al final del body para evitar problemas de stacking context (barra superior sin desenfoque)
     function relocateModals() {
-        const modales = ['modal-nuevo-equipo', 'modal-asignar', 'modal-devolver', 'modal-detalle-equipo', 'modal-historial-asignaciones'];
+        const modales = ['modal-nuevo-equipo', 'modal-asignar', 'modal-devolver', 'modal-detalle-equipo', 'modal-historial-asignaciones', 'modal-baja-equipo', 'modal-cambiar-estado'];
         modales.forEach(function(id) {
             const el = document.getElementById(id);
             if (el) {
