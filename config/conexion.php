@@ -19,6 +19,8 @@ $is_local = (
     strpos($http_host, '10.') === 0
 );
 
+if (!defined('IS_LOCAL')) define('IS_LOCAL', $is_local);
+
 if ($is_local) {
     // ====================================================
     // ENTORNO LOCAL (XAMPP / Desarrollo en tu PC)

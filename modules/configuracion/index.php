@@ -463,50 +463,88 @@ $tab_activa = $_GET['tab'] ?? 'todos';
     <!-- Contenedor del Modal -->
     <div
         class="bg-white border border-indigo-100 rounded-3xl p-6 w-full max-w-md shadow-2xl relative overflow-hidden animate-fade-in-up z-10">
-        <form autocomplete="off" action="restore.php" method="POST" enctype="multipart/form-data" onsubmit="document.getElementById('btnConfirmRestore').disabled = true; document.getElementById('btnConfirmRestore').innerHTML = '<i class=\'fa-solid fa-spinner fa-spin\'></i> Restaurando...';">
+        <?php if (defined('IS_LOCAL') && !IS_LOCAL): ?>
+            <!-- Información para entorno en línea (InfinityFree) -->
             <div class="space-y-4">
                 <div class="flex items-center gap-3">
                     <div
                         class="h-10 w-10 rounded-2xl bg-indigo-500/5 text-indigo-500 flex items-center justify-center border border-indigo-500/10">
-                        <i class="fa-solid fa-cloud-arrow-up text-base"></i>
+                        <i class="fa-solid fa-cloud text-base"></i>
                     </div>
                     <div>
-                        <h3 class="text-base font-bold text-slate-800">Restaurar Base de Datos</h3>
-                        <p class="text-[11px] text-slate-400">Selecciona tu archivo .sql de respaldo</p>
+                        <h3 class="text-base font-bold text-slate-800">Restauración en la Nube</h3>
+                        <p class="text-[11px] text-slate-400">Hosting InfinityFree (gestionit.xo.je)</p>
                     </div>
                 </div>
 
-                <div class="p-3.5 bg-amber-500/5 border border-amber-500/15 rounded-2xl flex items-start gap-2.5">
-                    <i class="fa-solid fa-triangle-exclamation text-amber-500 text-xs mt-0.5"></i>
-                    <p class="text-[11px] text-amber-700 leading-relaxed">
-                        Esta acción sobrescribirá las tablas y datos actuales con la información contenida en el archivo de respaldo seleccionado.
-                    </p>
+                <div class="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl space-y-2 text-xs text-amber-900 leading-relaxed">
+                    <div class="flex items-center gap-2 font-bold text-amber-700">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Firewall de Seguridad (OpenResty)</span>
+                    </div>
+                    <p class="text-[11px] text-slate-600">Por políticas de seguridad de InfinityFree, el servidor bloquea la carga de archivos <code>.sql</code> a través de formularios web directos (error <em>403 Forbidden</em>).</p>
+                    <p class="font-bold text-slate-800 text-[11px] pt-1">Para restaurar en línea sigue estos pasos:</p>
+                    <ol class="list-decimal pl-4 space-y-1.5 text-[11px] text-slate-700">
+                        <li>Ingresa a tu panel en <a href="https://dash.infinityfree.com" target="_blank" class="underline text-indigo-600 font-bold hover:text-indigo-800">dash.infinityfree.com</a>.</li>
+                        <li>Abre tu cuenta y entra a <strong>MySQL Databases</strong>.</li>
+                        <li>Haz clic en el botón <strong>phpMyAdmin</strong> al lado de tu base de datos.</li>
+                        <li>Entra a la pestaña <strong>Importar</strong>, selecciona tu archivo <code>.sql</code> y haz clic en <strong>Importar</strong>.</li>
+                    </ol>
                 </div>
 
-                <div class="space-y-1.5">
-                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Archivo SQL de Respaldo</label>
-                    <div class="relative border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-2xl p-5 text-center cursor-pointer transition bg-slate-50/50 group" onclick="document.getElementById('sql_file_input').click()">
-                        <input type="file" id="sql_file_input" name="sql_file" accept=".sql" required class="hidden" onchange="updateSqlFilename(this)">
-                        <div class="flex flex-col items-center justify-center gap-1.5">
-                            <i class="fa-solid fa-file-invoice text-2xl text-slate-300 group-hover:text-indigo-500 transition-colors"></i>
-                            <span id="sql_file_name_label" class="text-xs font-semibold text-slate-600 group-hover:text-indigo-600 transition-colors">Selecciona o arrastra tu archivo .sql</span>
-                            <span class="text-[10px] text-slate-400">Ejemplo: gestion_it.sql</span>
+                <div class="mt-6 pt-4 border-t border-slate-100 flex gap-2 justify-end">
+                    <button type="button" onclick="document.getElementById('restoreModal').classList.add('hidden')"
+                        class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition duration-200">
+                        Entendido
+                    </button>
+                </div>
+            </div>
+        <?php else: ?>
+            <form autocomplete="off" action="restore.php" method="POST" enctype="multipart/form-data" onsubmit="document.getElementById('btnConfirmRestore').disabled = true; document.getElementById('btnConfirmRestore').innerHTML = '<i class=\'fa-solid fa-spinner fa-spin\'></i> Restaurando...';">
+                <div class="space-y-4">
+                    <div class="flex items-center gap-3">
+                        <div
+                            class="h-10 w-10 rounded-2xl bg-indigo-500/5 text-indigo-500 flex items-center justify-center border border-indigo-500/10">
+                            <i class="fa-solid fa-cloud-arrow-up text-base"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold text-slate-800">Restaurar Base de Datos</h3>
+                            <p class="text-[11px] text-slate-400">Selecciona tu archivo .sql de respaldo</p>
+                        </div>
+                    </div>
+
+                    <div class="p-3.5 bg-amber-500/5 border border-amber-500/15 rounded-2xl flex items-start gap-2.5">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-500 text-xs mt-0.5"></i>
+                        <p class="text-[11px] text-amber-700 leading-relaxed">
+                            Esta acción sobrescribirá las tablas y datos actuales con la información contenida en el archivo de respaldo seleccionado.
+                        </p>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Archivo SQL de Respaldo</label>
+                        <div class="relative border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-2xl p-5 text-center cursor-pointer transition bg-slate-50/50 group" onclick="document.getElementById('sql_file_input').click()">
+                            <input type="file" id="sql_file_input" name="sql_file" accept=".sql" required class="hidden" onchange="updateSqlFilename(this)">
+                            <div class="flex flex-col items-center justify-center gap-1.5">
+                                <i class="fa-solid fa-file-invoice text-2xl text-slate-300 group-hover:text-indigo-500 transition-colors"></i>
+                                <span id="sql_file_name_label" class="text-xs font-semibold text-slate-600 group-hover:text-indigo-600 transition-colors">Selecciona o arrastra tu archivo .sql</span>
+                                <span class="text-[10px] text-slate-400">Ejemplo: gestion_it.sql</span>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="mt-6 pt-4 border-t border-slate-100 flex gap-2 justify-end">
-                <button type="button" onclick="document.getElementById('restoreModal').classList.add('hidden')"
-                    class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold text-xs transition duration-200">
-                    Cancelar
-                </button>
-                <button type="submit" id="btnConfirmRestore"
-                    class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition duration-200 flex items-center gap-1.5">
-                    <i class="fa-solid fa-rotate text-[11px]"></i> Restaurar Ahora
-                </button>
-            </div>
-        </form>
+                <div class="mt-6 pt-4 border-t border-slate-100 flex gap-2 justify-end">
+                    <button type="button" onclick="document.getElementById('restoreModal').classList.add('hidden')"
+                        class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold text-xs transition duration-200">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="btnConfirmRestore"
+                        class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition duration-200 flex items-center gap-1.5">
+                        <i class="fa-solid fa-rotate text-[11px]"></i> Restaurar Ahora
+                    </button>
+                </div>
+            </form>
+        <?php endif; ?>
     </div>
 </div>
 
