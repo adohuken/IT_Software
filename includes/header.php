@@ -23,36 +23,112 @@ $uri = $_SERVER['PHP_SELF'];
 $current_page = basename($uri);
 $current_tab = $_GET['tab'] ?? '';
 
-// Definición centralizada y limpia del menú de navegación con soporte para sub-menús
-$menu_items = [
-    'dashboard' => [
-        'titulo'    => 'Dashboard',
-        'label'     => 'Dashboard',
-        'url'       => BASE_URL . 'index.php',
-        'icono'     => 'fa-solid fa-chart-pie',
-        'active'    => ($current_page === 'index.php' && strpos($uri, '/modules/') === false)
-    ],
-    'equipos' => [
-        'titulo'    => 'Inventario de Equipos',
-        'label'     => 'Equipos',
-        'url'       => BASE_URL . 'modules/equipos/index.php',
-        'icono'     => 'fa-solid fa-laptop',
-        'active'    => (strpos($uri, '/equipos/') !== false)
-    ],
-    'infraestructura' => [
-        'titulo'    => 'Infraestructura & Redes IP',
-        'label'     => 'Infraestructura & Redes',
-        'url'       => BASE_URL . 'modules/infraestructura/index.php',
-        'icono'     => 'fa-solid fa-network-wired',
-        'active'    => (strpos($uri, '/infraestructura/') !== false),
-        'subitems'  => [
-            'equipos_red' => [
-                'titulo' => 'Dispositivos IP y Servidores',
-                'label'  => 'Switches, APs y Servers',
-                'url'    => BASE_URL . 'modules/infraestructura/index.php?tab=equipos_red',
-                'icono'  => 'fa-solid fa-server',
-                'active' => (strpos($uri, '/infraestructura/') !== false && ($current_tab === 'equipos_red' || empty($current_tab)))
+// Definición estructurada del menú organizada por secciones temáticas coherentes
+$menu_sections = [
+    [
+        'header' => 'Principal',
+        'items'  => [
+            'dashboard' => [
+                'titulo' => 'Dashboard General',
+                'label'  => 'Dashboard',
+                'url'    => BASE_URL . 'index.php',
+                'icono'  => 'fa-solid fa-chart-pie',
+                'active' => ($current_page === 'index.php' && strpos($uri, '/modules/') === false)
             ],
+        ]
+    ],
+    [
+        'header' => 'Equipos & Activos',
+        'items'  => [
+            'equipos' => [
+                'titulo' => 'Inventario de Equipos',
+                'label'  => 'Inventario de Equipos',
+                'url'    => BASE_URL . 'modules/equipos/index.php',
+                'icono'  => 'fa-solid fa-laptop',
+                'active' => (strpos($uri, '/equipos/') !== false)
+            ],
+            'entregas' => [
+                'titulo' => 'Recepción y Entregas de Equipos',
+                'label'  => 'Recepción y Entregas',
+                'url'    => BASE_URL . 'modules/entregas/index.php',
+                'icono'  => 'fa-solid fa-file-signature',
+                'active' => (strpos($uri, '/entregas/') !== false)
+            ],
+        ]
+    ],
+    [
+        'header' => 'Redes & Conectividad',
+        'items'  => [
+            'infraestructura' => [
+                'titulo'   => 'Infraestructura & Redes IP',
+                'label'    => 'Infraestructura & Redes',
+                'url'      => BASE_URL . 'modules/infraestructura/index.php?tab=equipos_red',
+                'icono'    => 'fa-solid fa-network-wired',
+                'active'   => (strpos($uri, '/infraestructura/') !== false && in_array($current_tab, ['equipos_red', 'matriz_ip', ''])),
+                'subitems' => [
+                    'equipos_red' => [
+                        'titulo' => 'Dispositivos IP y Servidores',
+                        'label'  => 'Switches, APs y Servers',
+                        'url'    => BASE_URL . 'modules/infraestructura/index.php?tab=equipos_red',
+                        'icono'  => 'fa-solid fa-server',
+                        'active' => (strpos($uri, '/infraestructura/') !== false && ($current_tab === 'equipos_red' || empty($current_tab)))
+                    ],
+                    'matriz_ip' => [
+                        'titulo' => 'Matriz de Subredes & IPs',
+                        'label'  => 'Subredes & Direcciones IP',
+                        'url'    => BASE_URL . 'modules/infraestructura/index.php?tab=matriz_ip',
+                        'icono'  => 'fa-solid fa-sitemap',
+                        'active' => (strpos($uri, '/infraestructura/') !== false && $current_tab === 'matriz_ip')
+                    ],
+                ]
+            ],
+        ]
+    ],
+    [
+        'header' => 'Personal & Cuentas',
+        'items'  => [
+            'empleados' => [
+                'titulo' => 'Directorio de Colaboradores',
+                'label'  => 'Colaboradores',
+                'url'    => BASE_URL . 'modules/empleados/index.php',
+                'icono'  => 'fa-solid fa-users',
+                'active' => (strpos($uri, '/empleados/') !== false)
+            ],
+            'credenciales' => [
+                'titulo'   => 'Cuentas de Colaboradores',
+                'label'    => 'Cuentas de Colaboradores',
+                'url'      => BASE_URL . 'modules/credenciales/index.php?tab=fichas',
+                'icono'    => 'fa-solid fa-id-badge',
+                'active'   => (strpos($uri, '/credenciales/') !== false),
+                'subitems' => [
+                    'fichas' => [
+                        'titulo' => 'Fichas Consolidadas',
+                        'label'  => 'Fichas Consolidadas',
+                        'url'    => BASE_URL . 'modules/credenciales/index.php?tab=fichas',
+                        'icono'  => 'fa-solid fa-id-card',
+                        'active' => (strpos($uri, '/credenciales/') !== false && ($current_tab === 'fichas' || empty($current_tab)))
+                    ],
+                    'm365' => [
+                        'titulo' => 'Microsoft 365 & Licencias',
+                        'label'  => 'Microsoft 365 & Licencias',
+                        'url'    => BASE_URL . 'modules/credenciales/index.php?tab=m365',
+                        'icono'  => 'fa-solid fa-cloud',
+                        'active' => (strpos($uri, '/credenciales/') !== false && $current_tab === 'm365')
+                    ],
+                    'equipos' => [
+                        'titulo' => 'Credenciales de Equipos',
+                        'label'  => 'Credenciales de Equipos',
+                        'url'    => BASE_URL . 'modules/credenciales/index.php?tab=equipos',
+                        'icono'  => 'fa-solid fa-desktop',
+                        'active' => (strpos($uri, '/credenciales/') !== false && $current_tab === 'equipos')
+                    ],
+                ]
+            ],
+        ]
+    ],
+    [
+        'header' => 'Departamento de IT',
+        'items'  => [
             'boveda' => [
                 'titulo' => 'Bóveda Cifrada de Accesos IT',
                 'label'  => 'Bóveda de Accesos IT',
@@ -61,102 +137,51 @@ $menu_items = [
                 'active' => (strpos($uri, '/infraestructura/') !== false && $current_tab === 'boveda')
             ],
             'equipo_it' => [
-                'titulo' => 'Integrantes Encargados de IT',
-                'label'  => 'Integrantes IT',
+                'titulo' => 'Integrantes del Equipo de IT',
+                'label'  => 'Equipo de IT',
                 'url'    => BASE_URL . 'modules/infraestructura/index.php?tab=equipo_it',
                 'icono'  => 'fa-solid fa-user-shield',
-                'active' => (strpos($uri, '/infraestructura/') !== false && $current_tab === 'equipo_it')
+                'active' => ((strpos($uri, '/infraestructura/') !== false && $current_tab === 'equipo_it') || strpos($uri, '/usuarios/') !== false)
             ],
-            'matriz_ip' => [
-                'titulo' => 'Matriz de Subredes & IPs',
-                'label'  => 'Mapa de IPs',
-                'url'    => BASE_URL . 'modules/infraestructura/index.php?tab=matriz_ip',
-                'icono'  => 'fa-solid fa-sitemap',
-                'active' => (strpos($uri, '/infraestructura/') !== false && $current_tab === 'matriz_ip')
-            ],
-        ]
-    ],
-    'entregas' => [
-        'titulo'    => 'Recepción y Entregas de Equipos',
-        'label'     => 'Recepción y Entregas',
-        'url'       => BASE_URL . 'modules/entregas/index.php',
-        'icono'     => 'fa-solid fa-file-signature',
-        'active'    => (strpos($uri, '/entregas/') !== false)
-    ],
-    'credenciales' => [
-        'titulo'    => 'Credenciales y Accesos',
-        'label'     => 'Credenciales',
-        'url'       => BASE_URL . 'modules/credenciales/index.php',
-        'icono'     => 'fa-solid fa-key',
-        'active'    => (strpos($uri, '/credenciales/') !== false),
-        'subitems'  => [
-            'equipos' => [
-                'titulo' => 'Credenciales de Equipos',
-                'label'  => 'Credenciales de Equipos',
-                'url'    => BASE_URL . 'modules/credenciales/index.php?tab=equipos',
-                'icono'  => 'fa-solid fa-desktop',
-                'active' => (strpos($uri, '/credenciales/') !== false && ($current_tab === 'equipos' || empty($current_tab)))
-            ],
-            'm365' => [
-                'titulo' => 'Microsoft 365 / Facturación',
-                'label'  => 'Microsoft 365 / Facturación',
-                'url'    => BASE_URL . 'modules/credenciales/index.php?tab=m365',
-                'icono'  => 'fa-cloud',
-                'active' => (strpos($uri, '/credenciales/') !== false && $current_tab === 'm365')
-            ],
-            'fichas' => [
-                'titulo' => 'Fichas Consolidadas',
-                'label'  => 'Fichas Consolidadas',
-                'url'    => BASE_URL . 'modules/credenciales/index.php?tab=fichas',
-                'icono'  => 'fa-solid fa-id-card',
-                'active' => (strpos($uri, '/credenciales/') !== false && $current_tab === 'fichas')
+            'tareas' => [
+                'titulo' => 'Gestión de Tareas IT',
+                'label'  => 'Tareas IT',
+                'url'    => BASE_URL . 'modules/tareas/index.php',
+                'icono'  => 'fa-solid fa-list-check',
+                'active' => (strpos($uri, '/tareas/') !== false)
             ],
         ]
     ],
-    'empleados' => [
-        'titulo'    => 'Colaboradores y Personal',
-        'label'     => 'Colaboradores',
-        'url'       => BASE_URL . 'modules/empleados/index.php',
-        'icono'     => 'fa-solid fa-users',
-        'active'    => (strpos($uri, '/empleados/') !== false)
-    ],
-    'tareas' => [
-        'titulo'    => 'Tareas IT',
-        'label'     => 'Tareas IT',
-        'url'       => BASE_URL . 'modules/tareas/index.php',
-        'icono'     => 'fa-solid fa-list-check',
-        'active'    => (strpos($uri, '/tareas/') !== false)
-    ],
-    'usuarios' => [
-        'titulo'    => 'Usuarios IT',
-        'label'     => 'Usuarios IT',
-        'url'       => BASE_URL . 'modules/usuarios/index.php',
-        'icono'     => 'fa-solid fa-user-shield',
-        'active'    => (strpos($uri, '/usuarios/') !== false)
-    ],
-    'configuracion' => [
-        'titulo'    => 'Configuración del Sistema',
-        'label'     => 'Configuración',
-        'url'       => BASE_URL . 'modules/configuracion/index.php',
-        'icono'     => 'fa-solid fa-sliders',
-        'active'    => (strpos($uri, '/configuracion/') !== false)
+    [
+        'header' => 'Sistema',
+        'items'  => [
+            'configuracion' => [
+                'titulo' => 'Configuración del Sistema',
+                'label'  => 'Configuración',
+                'url'    => BASE_URL . 'modules/configuracion/index.php',
+                'icono'  => 'fa-solid fa-sliders',
+                'active' => (strpos($uri, '/configuracion/') !== false)
+            ],
+        ]
     ],
 ];
 
 // Determinar título de la página actual desde el ítem o sub-ítem activo
 $topbar_title = 'Dashboard';
-foreach ($menu_items as $item) {
-    if (!empty($item['subitems'])) {
-        foreach ($item['subitems'] as $subitem) {
-            if ($subitem['active']) {
-                $topbar_title = $subitem['titulo'];
-                break 2;
+foreach ($menu_sections as $sec) {
+    foreach ($sec['items'] as $item) {
+        if (!empty($item['subitems'])) {
+            foreach ($item['subitems'] as $subitem) {
+                if ($subitem['active']) {
+                    $topbar_title = $subitem['titulo'];
+                    break 3;
+                }
             }
         }
-    }
-    if ($item['active']) {
-        $topbar_title = $item['titulo'];
-        break;
+        if ($item['active']) {
+            $topbar_title = $item['titulo'];
+            break 2;
+        }
     }
 }
 
@@ -181,6 +206,15 @@ if (isset($_SESSION['user_nombre'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($topbar_title) ?> - <?= htmlspecialchars($system_name) ?></title>
+    
+    <!-- Favicon de Alta Gama -->
+    <link rel="icon" type="image/svg+xml" href="<?= BASE_URL ?>assets/images/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="<?= BASE_URL ?>assets/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="<?= BASE_URL ?>assets/images/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="<?= BASE_URL ?>assets/images/apple-touch-icon.png">
+    <link rel="shortcut icon" href="<?= BASE_URL ?>favicon.ico">
+    <link rel="manifest" href="<?= BASE_URL ?>assets/images/site.webmanifest">
+    <meta name="theme-color" content="#111c44">
     
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -242,65 +276,53 @@ if (isset($_SESSION['user_nombre'])) {
                 </div>
 
                 <!-- MENU LATERAL DE NAVEGACIÓN -->
-                <nav class="p-4 space-y-1.5 overflow-y-auto max-h-[calc(100vh-160px)] custom-scrollbar">
-                    <p class="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 mt-1">Menú Principal</p>
-
-                    <?php foreach ($menu_items as $key => $item): 
-                        $is_active = $item['active'];
-                        $has_subitems = !empty($item['subitems']);
-                    ?>
-                        <?php if ($has_subitems): ?>
-                            <div class="space-y-1">
-                                <button onclick="toggleSubmenu('submenu-<?= $key ?>')" 
-                                        class="w-full flex items-center justify-between px-4 py-3 rounded-xl font-medium text-xs transition duration-200 <?= $is_active ? 'bg-slate-800/80 text-cyan-300 font-bold shadow-sm' : 'text-slate-300 hover:bg-slate-800/60 hover:text-white' ?>">
-                                    <div class="flex items-center gap-3.5">
-                                        <i class="<?= $item['icono'] ?> text-sm w-5 text-center <?= $is_active ? 'text-cyan-400' : 'text-slate-400' ?>"></i>
-                                        <span><?= htmlspecialchars($item['label']) ?></span>
+                <nav class="p-3 space-y-3 overflow-y-auto max-h-[calc(100vh-85px)] custom-scrollbar">
+                    <?php foreach ($menu_sections as $sec): ?>
+                        <div class="space-y-1">
+                            <?php if (!empty($sec['header'])): ?>
+                                <p class="px-3 pt-2 pb-1 text-[9px] font-extrabold text-slate-400/80 uppercase tracking-widest border-t border-slate-800/40 first:border-0 first:pt-0">
+                                    <?= htmlspecialchars($sec['header']) ?>
+                                </p>
+                            <?php endif; ?>
+                            
+                            <?php foreach ($sec['items'] as $key => $item): 
+                                $is_active = $item['active'];
+                                $has_subitems = !empty($item['subitems']);
+                            ?>
+                                <?php if ($has_subitems): ?>
+                                    <div class="space-y-1">
+                                        <button onclick="toggleSubmenu('submenu-<?= $key ?>')" 
+                                                class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl font-medium text-xs transition duration-200 <?= $is_active ? 'bg-slate-800/80 text-cyan-300 font-bold shadow-sm' : 'text-slate-300 hover:bg-slate-800/60 hover:text-white' ?>">
+                                            <div class="flex items-center gap-3">
+                                                <i class="<?= $item['icono'] ?> text-sm w-4 text-center <?= $is_active ? 'text-cyan-400' : 'text-slate-400' ?>"></i>
+                                                <span class="truncate"><?= htmlspecialchars($item['label']) ?></span>
+                                            </div>
+                                            <i class="fa-solid fa-chevron-down text-[10px] text-slate-400 transition-transform duration-200 <?= $is_active ? 'rotate-180 text-cyan-400' : '' ?>" id="arrow-submenu-<?= $key ?>"></i>
+                                        </button>
+                                        <div id="submenu-<?= $key ?>" class="pl-4 pr-1 space-y-1 py-1 <?= $is_active ? '' : 'hidden' ?>">
+                                            <?php foreach ($item['subitems'] as $sub): 
+                                                $sub_active = $sub['active'];
+                                            ?>
+                                                <a href="<?= $sub['url'] ?>" 
+                                                   class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition duration-200 <?= $sub_active ? 'bg-cyan-500/20 text-cyan-300 border-l-2 border-cyan-400 font-bold' : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200' ?>">
+                                                    <i class="<?= $sub['icono'] ?> text-xs w-4 text-center <?= $sub_active ? 'text-cyan-400' : 'text-slate-500' ?>"></i>
+                                                    <span class="truncate"><?= htmlspecialchars($sub['label']) ?></span>
+                                                </a>
+                                            <?php endforeach; ?>
+                                        </div>
                                     </div>
-                                    <i class="fa-solid fa-chevron-down text-[10px] text-slate-400 transition-transform duration-200 <?= $is_active ? 'rotate-180 text-cyan-400' : '' ?>" id="arrow-submenu-<?= $key ?>"></i>
-                                </button>
-                                <div id="submenu-<?= $key ?>" class="pl-4 pr-1 space-y-1 py-1 <?= $is_active ? '' : 'hidden' ?>">
-                                    <?php foreach ($item['subitems'] as $sub): 
-                                        $sub_active = $sub['active'];
-                                    ?>
-                                        <a href="<?= $sub['url'] ?>" 
-                                           class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg text-xs transition duration-200 <?= $sub_active ? 'bg-cyan-500/20 text-cyan-300 border-l-2 border-cyan-400 font-bold' : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200' ?>">
-                                            <i class="<?= $sub['icono'] ?> text-xs w-4 text-center <?= $sub_active ? 'text-cyan-400' : 'text-slate-500' ?>"></i>
-                                            <span class="truncate"><?= htmlspecialchars($sub['label']) ?></span>
-                                        </a>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                        <?php else: ?>
-                            <a href="<?= $item['url'] ?>" 
-                               class="flex items-center gap-3.5 px-4 py-3 rounded-xl font-medium text-xs transition duration-200 <?= $is_active ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-cyan-300 border-l-4 border-cyan-400 font-bold shadow-sm' : 'text-slate-300 hover:bg-slate-800/60 hover:text-white' ?>">
-                                <i class="<?= $item['icono'] ?> text-sm w-5 text-center <?= $is_active ? 'text-cyan-400' : 'text-slate-400' ?>"></i>
-                                <span><?= htmlspecialchars($item['label']) ?></span>
-                            </a>
-                        <?php endif; ?>
+                                <?php else: ?>
+                                    <a href="<?= $item['url'] ?>" 
+                                       class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-xs transition duration-200 <?= $is_active ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-cyan-300 border-l-4 border-cyan-400 font-bold shadow-sm' : 'text-slate-300 hover:bg-slate-800/60 hover:text-white' ?>">
+                                        <i class="<?= $item['icono'] ?> text-sm w-4 text-center <?= $is_active ? 'text-cyan-400' : 'text-slate-400' ?>"></i>
+                                        <span class="truncate"><?= htmlspecialchars($item['label']) ?></span>
+                                    </a>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
                     <?php endforeach; ?>
                 </nav>
             </div>
-
-            <!-- USUARIO EN FOOTER DE SIDEBAR -->
-            <?php if (isset($_SESSION['user_nombre'])): ?>
-            <div class="p-4 border-t border-slate-800/80 bg-slate-900/40">
-                <div class="flex items-center justify-between gap-2">
-                    <div class="flex items-center gap-2.5 overflow-hidden">
-                        <div class="h-9 w-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-bold text-white text-xs shrink-0 shadow-md">
-                            <?= $iniciales ?>
-                        </div>
-                        <div class="truncate">
-                            <h4 class="text-xs font-bold text-slate-200 truncate leading-tight"><?= htmlspecialchars($_SESSION['user_nombre']) ?></h4>
-                            <p class="text-[10px] text-cyan-400 font-semibold mt-0.5 truncate"><?= htmlspecialchars($_SESSION['user_rol'] ?? 'Operador') ?></p>
-                        </div>
-                    </div>
-                    <a href="<?= BASE_URL ?>logout.php" class="h-8 w-8 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 flex items-center justify-center transition shrink-0" title="Cerrar Sesión">
-                        <i class="fa-solid fa-arrow-right-from-bracket text-xs"></i>
-                    </a>
-                </div>
-            </div>
-            <?php endif; ?>
         </aside>
 
         <!-- CONTENEDOR PRINCIPAL (TOPBAR + CONTENIDO) -->
@@ -321,21 +343,22 @@ if (isset($_SESSION['user_nombre'])) {
                     </div>
                 </div>
 
-                <!-- Acciones Derecha -->
-                <div class="flex items-center gap-4">
+                <!-- Acciones Derecha (Perfil de Usuario y Salir) -->
+                <div class="flex items-center gap-3 sm:gap-4">
                     <?php if (isset($_SESSION['user_nombre'])): ?>
-                    <div class="flex items-center gap-3">
-                        <div class="hidden sm:flex items-center gap-2 bg-slate-100 border border-slate-200/80 py-1.5 px-3 rounded-xl">
-                            <div class="h-7 w-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-bold text-white text-[10px] shrink-0">
+                        <div class="flex items-center gap-2.5 bg-slate-50 border border-slate-200/90 py-1.5 px-3 rounded-2xl shadow-xs">
+                            <div class="h-8 w-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-bold text-white text-xs shrink-0 shadow-sm shadow-cyan-500/20">
                                 <?= $iniciales ?>
                             </div>
-                            <span class="text-xs font-bold text-slate-700"><?= htmlspecialchars($_SESSION['user_nombre']) ?></span>
+                            <div class="hidden sm:flex flex-col text-left">
+                                <span class="text-xs font-bold text-slate-800 leading-tight"><?= htmlspecialchars($_SESSION['user_nombre']) ?></span>
+                                <span class="text-[10px] text-cyan-600 font-semibold leading-tight"><?= htmlspecialchars($_SESSION['user_rol'] ?? 'Administrador') ?></span>
+                            </div>
                         </div>
-                    </div>
                     <?php endif; ?>
 
-                    <a href="<?= BASE_URL ?>logout.php" class="h-10 px-3.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-600 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-200 flex items-center gap-2 transition duration-200 text-xs font-bold shadow-sm" title="Cerrar Sesión">
-                        <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                    <a href="<?= BASE_URL ?>logout.php" class="h-9 px-3.5 rounded-xl bg-slate-100 hover:bg-rose-50 border border-slate-200 hover:border-rose-200 text-slate-600 hover:text-rose-600 flex items-center gap-2 transition duration-200 text-xs font-bold shadow-xs" title="Cerrar Sesión">
+                        <i class="fa-solid fa-arrow-right-from-bracket text-xs"></i>
                         <span class="hidden sm:inline">Salir</span>
                     </a>
                 </div>

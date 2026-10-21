@@ -35,10 +35,12 @@ try {
     
     $pdo->exec("SET FOREIGN_KEY_CHECKS=1");
     
-    $_SESSION['flash_success'] = "¡El sistema ha sido reseteado! Se borraron los datos de $resetCount tablas. Tu usuario de acceso se mantuvo intacto.";
+    $_SESSION['flash_sys_ok'] = "¡El sistema ha sido reseteado! Se borraron los datos de $resetCount tablas. Tu usuario de acceso se mantuvo intacto.";
+    $_SESSION['flash_success'] = $_SESSION['flash_sys_ok'];
 
 } catch (Exception $e) {
-    $_SESSION['flash_error'] = "Error al resetear la base de datos: " . $e->getMessage();
+    $_SESSION['flash_sys_err'] = "Error al resetear la base de datos: " . $e->getMessage();
+    $_SESSION['flash_error'] = $_SESSION['flash_sys_err'];
 }
 
 header('Location: index.php');

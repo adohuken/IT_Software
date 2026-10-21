@@ -128,6 +128,7 @@ if ($action === 'save_boveda' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $plataforma = trim($_POST['plataforma'] ?? '');
     $url_acceso = trim($_POST['url_acceso'] ?? '');
     $usuario = trim($_POST['usuario'] ?? '');
+    $usuario_it_id = !empty($_POST['usuario_it_id']) ? (int)$_POST['usuario_it_id'] : null;
     $password_plano = $_POST['password'] ?? '';
     $notas = trim($_POST['notas'] ?? '');
 
@@ -141,11 +142,11 @@ if ($action === 'save_boveda' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($web_id) {
             if (!empty($password_plano)) {
                 $password_cifrado = Security::encrypt($password_plano);
-                $stmt = $db->prepare("UPDATE credenciales_web SET plataforma = ?, url_acceso = ?, usuario = ?, password_cifrado = ?, notas = ? WHERE id = ?");
-                $stmt->execute([$plataforma, $url_acceso, $usuario, $password_cifrado, $notas, $web_id]);
+                $stmt = $db->prepare("UPDATE credenciales_web SET plataforma = ?, url_acceso = ?, usuario = ?, usuario_it_id = ?, password_cifrado = ?, notas = ? WHERE id = ?");
+                $stmt->execute([$plataforma, $url_acceso, $usuario, $usuario_it_id, $password_cifrado, $notas, $web_id]);
             } else {
-                $stmt = $db->prepare("UPDATE credenciales_web SET plataforma = ?, url_acceso = ?, usuario = ?, notas = ? WHERE id = ?");
-                $stmt->execute([$plataforma, $url_acceso, $usuario, $notas, $web_id]);
+                $stmt = $db->prepare("UPDATE credenciales_web SET plataforma = ?, url_acceso = ?, usuario = ?, usuario_it_id = ?, notas = ? WHERE id = ?");
+                $stmt->execute([$plataforma, $url_acceso, $usuario, $usuario_it_id, $notas, $web_id]);
             }
             $_SESSION['flash_success'] = "Credencial de portal <b>" . htmlspecialchars($plataforma) . "</b> actualizada.";
         } else {
@@ -155,14 +156,14 @@ if ($action === 'save_boveda' && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
             $password_cifrado = Security::encrypt($password_plano);
-            $stmt = $db->prepare("INSERT INTO credenciales_web (plataforma, url_acceso, usuario, password_cifrado, notas) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$plataforma, $url_acceso, $usuario, $password_cifrado, $notas]);
+            $stmt = $db->prepare("INSERT INTO credenciales_web (plataforma, url_acceso, usuario, usuario_it_id, password_cifrado, notas) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$plataforma, $url_acceso, $usuario, $usuario_it_id, $password_cifrado, $notas]);
             $_SESSION['flash_success'] = "¡Credencial de portal web <b>" . htmlspecialchars($plataforma) . "</b> guardada en la bóveda de IT!";
         }
     } catch (PDOException $e) {
         $_SESSION['flash_error'] = "Error al guardar en bóveda: " . $e->getMessage();
     }
-    header('Location: index.php?tab=boveda');
+    header('Location: index.php?tab=boveda' . ($usuario_it_id ? '&user_it=' . $usuario_it_id : ''));
     exit;
 }
 
@@ -448,6 +449,74 @@ if ($action === 'import_web_csv' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($redirect === 'config') $_SESSION['flash_sys_ok'] = "Se importaron $importados credenciales web a la bóveda de IT.";
 
     header("Location: $retUrl");
+    exit;
+}
+
+// ==========================================
+// 8. GESTIÓN DE SUBREDES & DIRECCIONAMIENTO IP
+// ==========================================
+if ($action === 'save_subred' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $subred_id = !empty($_POST['subred_id']) ? (int)$_POST['subred_id'] : null;
+    $sucursal_id = !empty($_POST['sucursal_id']) ? (int)$_POST['sucursal_id'] : null;
+    $nombre_red = trim($_POST['nombre_red'] ?? '');
+    $segmento_cidr = trim($_POST['segmento_cidr'] ?? '');
+    $gateway = trim($_POST['gateway'] ?? '');
+    $vlan = trim($_POST['vlan'] ?? '');
+    $rango_dhcp = trim($_POST['rango_dhcp'] ?? '');
+    $dns_servers = trim($_POST['dns_servers'] ?? '1.1.1.1, 8.8.8.8');
+    $tipo_red = $_POST['tipo_red'] ?? 'Datos / LAN';
+    $estado = $_POST['estado'] ?? 'Activa';
+    $notas = trim($_POST['notas'] ?? '');
+
+    if (empty($sucursal_id) || empty($nombre_red) || empty($segmento_cidr) || empty($gateway)) {
+        $_SESSION['flash_error'] = "Sucursal, Nombre de Red, Segmento CIDR y Gateway son requeridos.";
+        header('Location: index.php?tab=matriz_ip');
+        exit;
+    }
+
+    try {
+        if ($subred_id) {
+            $stmt = $db->prepare("
+                UPDATE subredes SET 
+                    sucursal_id = ?, nombre_red = ?, segmento_cidr = ?, gateway = ?,
+                    vlan = ?, rango_dhcp = ?, dns_servers = ?, tipo_red = ?, estado = ?, notas = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $sucursal_id, $nombre_red, $segmento_cidr, $gateway,
+                $vlan, $rango_dhcp, $dns_servers, $tipo_red, $estado, $notas, $subred_id
+            ]);
+            $_SESSION['flash_success'] = "Subred <b>" . htmlspecialchars($nombre_red) . "</b> (" . htmlspecialchars($segmento_cidr) . ") actualizada exitosamente.";
+        } else {
+            $stmt = $db->prepare("
+                INSERT INTO subredes (
+                    sucursal_id, nombre_red, segmento_cidr, gateway,
+                    vlan, rango_dhcp, dns_servers, tipo_red, estado, notas
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $sucursal_id, $nombre_red, $segmento_cidr, $gateway,
+                $vlan, $rango_dhcp, $dns_servers, $tipo_red, $estado, $notas
+            ]);
+            $_SESSION['flash_success'] = "¡Subred <b>" . htmlspecialchars($nombre_red) . "</b> (" . htmlspecialchars($segmento_cidr) . ") registrada exitosamente!";
+        }
+    } catch (PDOException $e) {
+        $_SESSION['flash_error'] = "Error al guardar subred: " . $e->getMessage();
+    }
+    header('Location: index.php?tab=matriz_ip');
+    exit;
+}
+
+if ($action === 'delete_subred' && isset($_GET['id'])) {
+    $subred_id = (int)$_GET['id'];
+    try {
+        $stmt = $db->prepare("DELETE FROM subredes WHERE id = ?");
+        $stmt->execute([$subred_id]);
+        $_SESSION['flash_success'] = "Subred eliminada de la matriz de direccionamiento.";
+    } catch (PDOException $e) {
+        $_SESSION['flash_error'] = "Error al eliminar subred: " . $e->getMessage();
+    }
+    header('Location: index.php?tab=matriz_ip');
     exit;
 }
 

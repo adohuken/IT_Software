@@ -54,6 +54,9 @@ $fecha_formateada = "{$dia} de {$mes} del {$anio}";
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Constancia de Entrega - <?= htmlspecialchars($asig['empleado_nombre']) ?></title>
+    <link rel="icon" type="image/svg+xml" href="<?= BASE_URL ?>assets/images/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="<?= BASE_URL ?>assets/images/favicon-32x32.png">
+    <link rel="shortcut icon" href="<?= BASE_URL ?>favicon.ico">
     <style>
         body {
             font-family: Arial, sans-serif;

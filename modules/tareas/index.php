@@ -52,17 +52,30 @@ $tareas = $stmt->fetchAll();
         </div>
     </div>
 
-    <!-- Barra de Filtros Rápidos -->
-    <div class="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
-        <div class="flex gap-2 flex-wrap">
-            <a href="index.php" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= empty($filtro_estado) ? 'bg-cyan-400 text-black' : 'bg-white/5 text-slate-500 hover:text-slate-800' ?>">Todas</a>
-            <a href="index.php?estado=Pendiente" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= ($filtro_estado === 'Pendiente') ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 'bg-white/5 text-slate-500 hover:text-slate-800' ?>">Pendientes</a>
-            <a href="index.php?estado=En Progreso" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= ($filtro_estado === 'En Progreso') ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-white/5 text-slate-500 hover:text-slate-800' ?>">En Progreso</a>
-            <a href="index.php?estado=Completada" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= ($filtro_estado === 'Completada') ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-slate-500 hover:text-slate-800' ?>">Completadas</a>
-            <a href="index.php?estado=Vencida" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= ($filtro_estado === 'Vencida') ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-white/5 text-slate-500 hover:text-slate-800' ?>">Vencidas</a>
+    <!-- Barra de Filtros Rápidos y Buscador -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200">
+        <div class="flex gap-2 flex-wrap items-center">
+            <a href="index.php" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= empty($filtro_estado) ? 'bg-cyan-400 text-black' : 'bg-slate-100 text-slate-600 hover:text-slate-800' ?>">Todas</a>
+            <a href="index.php?estado=Pendiente" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= ($filtro_estado === 'Pendiente') ? 'bg-amber-500/20 text-amber-600 border border-amber-500/30' : 'bg-slate-100 text-slate-600 hover:text-slate-800' ?>">Pendientes</a>
+            <a href="index.php?estado=En Progreso" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= ($filtro_estado === 'En Progreso') ? 'bg-blue-500/20 text-blue-600 border border-blue-500/30' : 'bg-slate-100 text-slate-600 hover:text-slate-800' ?>">En Progreso</a>
+            <a href="index.php?estado=Completada" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= ($filtro_estado === 'Completada') ? 'bg-emerald-500/20 text-emerald-600 border border-emerald-500/30' : 'bg-slate-100 text-slate-600 hover:text-slate-800' ?>">Completadas</a>
+            <a href="index.php?estado=Vencida" class="px-4 py-2 rounded-lg text-xs font-semibold transition <?= ($filtro_estado === 'Vencida') ? 'bg-rose-500/20 text-rose-600 border border-rose-500/30' : 'bg-slate-100 text-slate-600 hover:text-slate-800' ?>">Vencidas</a>
         </div>
-        <div class="text-xs text-slate-400 font-medium">
-            Total de Tareas: <span class="text-slate-800 font-bold"><?= count($tareas) ?></span>
+        
+        <!-- Buscador Rápido de Tareas con Botón X -->
+        <div class="relative w-full md:w-72 flex items-center">
+            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+            <input type="text" id="buscar_tarea" 
+                   oninput="toggleClearBtn('buscar_tarea', 'btn_clear_tarea'); filtrarTareas();" 
+                   onkeydown="if(event.key === 'Escape'){ limpiarBuscador('buscar_tarea', 'btn_clear_tarea', filtrarTareas); }" 
+                   placeholder="Buscar tarea, técnico..." 
+                   class="w-full pl-9 pr-9 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-cyan-500 transition">
+            <button type="button" id="btn_clear_tarea" 
+                    onclick="limpiarBuscador('buscar_tarea', 'btn_clear_tarea', filtrarTareas)" 
+                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
+                    title="Limpiar búsqueda">
+                <i class="fa-solid fa-circle-xmark text-sm"></i>
+            </button>
         </div>
     </div>
 
@@ -93,7 +106,7 @@ $tareas = $stmt->fetchAll();
                     $icon = '<i class="fa-solid fa-list-check text-amber-500 text-lg"></i>';
                 }
             ?>
-                <div class="bg-white border <?= $border ?> rounded-2xl p-5 flex flex-col justify-between hover:border-cyan-400 hover:shadow-xl transition cursor-pointer relative overflow-hidden group" onclick='verDetalleTarea(<?= json_encode($t, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
+                <div class="tarjeta-tarea bg-white border <?= $border ?> rounded-2xl p-5 flex flex-col justify-between hover:border-cyan-400 hover:shadow-xl transition cursor-pointer relative overflow-hidden group" onclick='verDetalleTarea(<?= json_encode($t, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                     <?php if ($t['es_repetitiva']): ?>
                         <!-- Distintivo de Tarea Programada / Recurrente -->
                         <span class="absolute right-0 top-0 bg-cyan-500/10 text-cyan-700 border-l border-b border-cyan-500/20 text-[9px] font-bold px-2.5 py-1 rounded-bl-lg flex items-center gap-1" title="Tarea Recurrente">
@@ -330,6 +343,20 @@ $tareas = $stmt->fetchAll();
         actionBtns.innerHTML = btnsHtml;
 
         abrirModal('modal-detalle-tarea');
+    }
+
+    function filtrarTareas() {
+        const input = document.getElementById('buscar_tarea');
+        if (!input) return;
+        toggleClearBtn('buscar_tarea', 'btn_clear_tarea');
+        const filter = input.value.toLowerCase().trim();
+        document.querySelectorAll('.tarjeta-tarea').forEach(card => {
+            if (!filter || card.innerText.toLowerCase().includes(filter)) {
+                card.style.display = '';
+            } else {
+                card.style.display = 'none';
+            }
+        });
     }
 </script>
 

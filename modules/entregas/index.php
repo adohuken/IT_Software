@@ -152,9 +152,19 @@ $total_entregados  = (int)$db->query("SELECT COUNT(*) FROM recepciones_equipos W
             </div>
 
             <!-- Buscador Dinámico -->
-            <div class="relative w-full md:w-72">
-                <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-xs"></i>
-                <input type="text" id="searchInput" onkeyup="filtrarTabla()" placeholder="Buscar equipo, serie, receptor..." class="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-cyan-500 transition">
+            <div class="relative w-full md:w-72 flex items-center">
+                <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+                <input type="text" id="searchInput" 
+                       oninput="toggleClearBtn('searchInput', 'btn_clear_entregas'); filtrarTabla();" 
+                       onkeydown="if(event.key === 'Escape'){ limpiarBuscador('searchInput', 'btn_clear_entregas', filtrarTabla); }" 
+                       placeholder="Buscar equipo, serie, receptor..." 
+                       class="w-full pl-9 pr-9 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-cyan-500 transition">
+                <button type="button" id="btn_clear_entregas" 
+                        onclick="limpiarBuscador('searchInput', 'btn_clear_entregas', filtrarTabla)" 
+                        class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
+                        title="Limpiar búsqueda">
+                    <i class="fa-solid fa-circle-xmark text-sm"></i>
+                </button>
             </div>
         </div>
 
@@ -251,6 +261,8 @@ $total_entregados  = (int)$db->query("SELECT COUNT(*) FROM recepciones_equipos W
                 </tbody>
             </table>
         </div>
+        <!-- Paginación de Entregas y Recepciones -->
+        <div id="paginacionEntregas"></div>
     </div>
 </div>
 
@@ -517,20 +529,38 @@ function autocompletarEquipo(select) {
     }
 }
 
+let paginadorEntregas = null;
+
 function filtrarTabla() {
     const input = document.getElementById('searchInput');
-    const filter = input.value.toLowerCase();
-    const table = document.getElementById('tablaRecepciones');
-    const tr = table.getElementsByTagName('tr');
+    if (!input) return;
+    toggleClearBtn('searchInput', 'btn_clear_entregas');
+    const filter = input.value.toLowerCase().trim();
 
-    for (let i = 1; i < tr.length; i++) {
-        let text = tr[i].textContent || tr[i].innerText;
-        if (text.toLowerCase().indexOf(filter) > -1) {
-            tr[i].style.display = '';
-        } else {
-            tr[i].style.display = 'none';
-        }
+    if (paginadorEntregas) {
+        paginadorEntregas.setFilter(tr => {
+            let text = tr.textContent || tr.innerText;
+            return !filter || text.toLowerCase().indexOf(filter) > -1;
+        });
     }
+}
+
+function initPaginacionEntregas() {
+    if (typeof TablePaginator !== 'undefined') {
+        paginadorEntregas = new TablePaginator({
+            table: '#tablaRecepciones',
+            container: '#paginacionEntregas',
+            itemLabel: 'registros',
+            pageSize: 15
+        });
+        window.paginadorEntregas = paginadorEntregas;
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPaginacionEntregas);
+} else {
+    initPaginacionEntregas();
 }
 </script>
 

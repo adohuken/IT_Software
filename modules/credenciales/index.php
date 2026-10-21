@@ -45,7 +45,7 @@ $tab = $_GET['tab'] ?? 'equipos';
 // Cargar catálogos para formularios de creación
 $equipos = $db->query("SELECT id, tipo, marca, modelo, service_tag_sn FROM equipos WHERE estado != 'De Baja' AND id NOT IN (SELECT equipo_id FROM credenciales_equipos) ORDER BY tipo, marca")->fetchAll();
 $empleados = $db->query("SELECT id, nombre, cargo FROM empleados WHERE estado = 'Activo' ORDER BY nombre")->fetchAll();
-$sucursales = $db->query("SELECT id, nombre FROM sucursales ORDER BY nombre")->fetchAll();
+$sucursales = $db->query("SELECT s.id, CONCAT(e.nombre, ' - ', s.nombre) as nombre FROM sucursales s JOIN empresas e ON s.empresa_id = e.id ORDER BY e.nombre, s.nombre")->fetchAll();
 $empresas_list = $db->query("SELECT id, nombre FROM empresas ORDER BY nombre")->fetchAll();
 
 // Cargar listas correspondientes con joins para obtener el nombre de la empresa
@@ -296,7 +296,8 @@ foreach ($equipos_fichas_raw as $ef) {
 $fichas_raw = $db->query("
     SELECT
         emp.id, emp.nombre, emp.cargo, emp.departamento, emp.estado AS emp_estado,
-        s.nombre AS sucursal_nombre, emp_comp.nombre AS empresa_nombre,
+        s.id AS sucursal_id, s.nombre AS sucursal_nombre, 
+        emp_comp.id AS empresa_id, emp_comp.nombre AS empresa_nombre,
         -- M365
         m3.id AS m365_id, m3.correo AS m365_correo, m3.licencia_tipo,
         m3.password_cifrado AS m365_pass_enc, m3.estado AS m365_estado,
@@ -332,11 +333,88 @@ foreach ($cred_pers_raw as $cp) {
 }
 
 $fichas = [];
+$stats_paises = [
+    'ALL' => ['label' => 'Todas las Sedes', 'flag' => '🌐', 'total' => 0, 'm365' => 0, 'equipos' => 0, 'remotos_pin' => 0, 'gmail' => 0],
+    'NI'  => ['label' => 'Nicaragua', 'flag' => '🇳🇮', 'total' => 0, 'm365' => 0, 'equipos' => 0, 'remotos_pin' => 0, 'gmail' => 0],
+    'HN'  => ['label' => 'Honduras', 'flag' => '🇭🇳', 'total' => 0, 'm365' => 0, 'equipos' => 0, 'remotos_pin' => 0, 'gmail' => 0],
+    'SV'  => ['label' => 'El Salvador', 'flag' => '🇸🇻', 'total' => 0, 'm365' => 0, 'equipos' => 0, 'remotos_pin' => 0, 'gmail' => 0],
+    'DO'  => ['label' => 'Rep. Dominicana', 'flag' => '🇩🇴', 'total' => 0, 'm365' => 0, 'equipos' => 0, 'remotos_pin' => 0, 'gmail' => 0],
+];
+
 foreach ($fichas_raw as $f) {
-    // Adjuntar las credenciales personales al arreglo de la ficha
     $f['credenciales_personales'] = $cred_pers_map[$f['id']] ?? [];
     $f['m365_pass_plain'] = !empty($f['m365_pass_enc']) ? Security::decrypt($f['m365_pass_enc']) : '';
     $f['equipos'] = $equipos_fichas_map[$f['id']] ?? [];
+
+    // Extraer campos directos de credenciales_personales para búsqueda y visualización rápida
+    $f['correo_gmail'] = '';
+    $f['pass_gmail'] = '';
+    $f['pc_pin'] = '';
+    $f['pass_ag'] = '';
+    $f['correo_corp'] = '';
+    $f['pass_corp'] = '';
+
+    foreach ($f['credenciales_personales'] as $cp) {
+        if ($cp['tipo'] === 'Gmail') {
+            $f['correo_gmail'] = $cp['usuario'];
+            $f['pass_gmail'] = $cp['password_clear'];
+        } elseif ($cp['tipo'] === 'PC PIN') {
+            $f['pc_pin'] = $cp['password_clear'] ?: $cp['usuario'];
+        } elseif ($cp['tipo'] === 'Pass AG') {
+            $f['pass_ag'] = $cp['password_clear'] ?: $cp['usuario'];
+        } elseif ($cp['tipo'] === 'Correo Corporativo') {
+            $f['correo_corp'] = $cp['usuario'];
+            $f['pass_corp'] = $cp['password_clear'];
+        }
+    }
+
+    // País de la sede
+    $suc = $f['sucursal_nombre'] ?? '';
+    if (in_array($suc, ['Managua', 'León', 'Sébaco'])) {
+        $f['pais_code'] = 'NI';
+        $f['pais_nombre'] = 'Nicaragua';
+        $f['pais_flag'] = '🇳🇮';
+    } elseif ($suc === 'Honduras') {
+        $f['pais_code'] = 'HN';
+        $f['pais_nombre'] = 'Honduras';
+        $f['pais_flag'] = '🇭🇳';
+    } elseif ($suc === 'Salvador') {
+        $f['pais_code'] = 'SV';
+        $f['pais_nombre'] = 'El Salvador';
+        $f['pais_flag'] = '🇸🇻';
+    } elseif ($suc === 'Dominicana') {
+        $f['pais_code'] = 'DO';
+        $f['pais_nombre'] = 'Rep. Dominicana';
+        $f['pais_flag'] = '🇩🇴';
+    } else {
+        $f['pais_code'] = 'OTRO';
+        $f['pais_nombre'] = 'Otras';
+        $f['pais_flag'] = '🌐';
+    }
+
+    // Contadores por país
+    $p = $f['pais_code'];
+    if (isset($stats_paises[$p])) {
+        $stats_paises[$p]['total']++;
+        $stats_paises['ALL']['total']++;
+        if (!empty($f['m365_correo'])) {
+            $stats_paises[$p]['m365']++;
+            $stats_paises['ALL']['m365']++;
+        }
+        if (!empty($f['equipos'])) {
+            $stats_paises[$p]['equipos']++;
+            $stats_paises['ALL']['equipos']++;
+        }
+        if (!empty($f['pc_pin']) || !empty($f['pass_ag'])) {
+            $stats_paises[$p]['remotos_pin']++;
+            $stats_paises['ALL']['remotos_pin']++;
+        }
+        if (!empty($f['correo_gmail'])) {
+            $stats_paises[$p]['gmail']++;
+            $stats_paises['ALL']['gmail']++;
+        }
+    }
+
     $fichas[] = $f;
 }
 ?>
@@ -384,11 +462,19 @@ foreach ($fichas_raw as $f) {
     <!-- Barra de Filtros Dinámicos (Persistente) -->
     <div
         class="glass-panel p-4 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between border border-slate-200 bg-black/10">
-        <div class="flex-1 w-full relative">
-            <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-            <input type="text" id="filtro-busqueda" onkeyup="aplicarFiltros()"
+        <div class="flex-1 w-full relative flex items-center">
+            <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"></i>
+            <input type="text" id="filtro-busqueda" 
+                oninput="toggleClearBtn('filtro-busqueda', 'btn_clear_credenciales'); aplicarFiltros();"
+                onkeydown="if(event.key === 'Escape'){ limpiarBuscador('filtro-busqueda', 'btn_clear_credenciales', aplicarFiltros); }"
                 placeholder="Buscar por cuenta, usuario, plataforma, equipo, departamento..."
-                class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 pl-11 pr-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 placeholder-gray-500 transition">
+                class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 pl-11 pr-10 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 placeholder-gray-500 transition">
+            <button type="button" id="btn_clear_credenciales" 
+                onclick="limpiarBuscador('filtro-busqueda', 'btn_clear_credenciales', aplicarFiltros)" 
+                class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
+                title="Limpiar búsqueda">
+                <i class="fa-solid fa-circle-xmark text-sm"></i>
+            </button>
         </div>
         <div class="w-full md:w-64 relative">
             <i class="fa-solid fa-building absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
@@ -524,6 +610,8 @@ foreach ($fichas_raw as $f) {
                     </tbody>
                 </table>
             </div>
+            <!-- Paginación de Credenciales -->
+            <div id="paginacionCredenciales"></div>
         </div>
 
         <!-- 2. TABLA CUENTAS MICROSOFT 365 -->
@@ -668,6 +756,8 @@ foreach ($fichas_raw as $f) {
                     </tbody>
                 </table>
             </div>
+            <!-- Paginación de Credenciales -->
+            <div id="paginacionCredenciales"></div>
         </div>
     <?php endif; ?>
 
@@ -765,108 +855,309 @@ foreach ($fichas_raw as $f) {
                     </tbody>
                 </table>
             </div>
+            <!-- Paginación de Credenciales -->
+            <div id="paginacionCredenciales"></div>
         </div>
     <?php endif; ?>
     <?php if ($tab === 'fichas'): ?>
-        <div class="glass-panel rounded-2xl overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left modern-table text-sm">
-                    <thead>
-                        <tr>
-                            <th class="py-3 px-4">Colaborador</th>
-                            <th class="py-3 px-4">Cargo / Departamento</th>
-                            <th class="py-3 px-4">Sucursal</th>
-                            <th class="py-3 px-4"><i class="fa-solid fa-laptop text-cyan-600 mr-1"></i> Equipo Asignado</th>
-                            <th class="py-3 px-4"><i class="fa-solid fa-cloud text-emerald-500 mr-1"></i> M365</th>
-                            <th class="py-3 px-4"><i class="fa-brands fa-google text-red-500 mr-1"></i> Gmail</th>
-                            <th class="py-3 px-4 text-center">Ficha Completa</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($fichas)): ?>
-                            <tr>
-                                <td colspan="7" class="text-center py-10 text-slate-400">
-                                    No hay colaboradores activos registrados.
-                                </td>
-                            </tr>
-                        <?php else: ?>
-                            <?php foreach ($fichas as $f): ?>
-                                <tr class="item-fila hover:bg-violet-50/40 cursor-pointer transition border-b border-slate-100 group"
-                                    data-empresa="<?= htmlspecialchars($f['empresa_nombre'] ?? '') ?>"
-                                    data-search-text="<?= htmlspecialchars(strtolower($f['nombre'] . ' ' . $f['cargo'] . ' ' . $f['departamento'] . ' ' . ($f['correo_gmail'] ?? '') . ' ' . ($f['correo_corp'] ?? '') . ' ' . ($f['m365_correo'] ?? '') . ' ' . ($f['sucursal_nombre'] ?? ''))) ?>"
-                                    onclick='verFichaConsolidada(<?= json_encode($f, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
+        <div class="space-y-5">
+            <!-- 1. Sede Hub Nav: Selector por País / Sedes Internacionales -->
+            <div class="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="h-10 w-10 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white flex items-center justify-center text-lg font-bold shadow-md shadow-indigo-500/20">
+                            <i class="fa-solid fa-earth-americas"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                <span>Sede Hub — Navegación por País y Oficinas</span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">Internacional</span>
+                            </h3>
+                            <p class="text-xs text-slate-500">Supervisa colaboradores, credenciales, licencias M365 y hardware por país y sucursal.</p>
+                        </div>
+                    </div>
+                    <div class="text-xs font-semibold text-slate-500 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-200 shrink-0 flex items-center gap-2">
+                        <i class="fa-solid fa-users text-indigo-500"></i>
+                        <span>Total: <strong class="text-slate-800 font-extrabold"><?= count($fichas) ?></strong> colaboradores</span>
+                    </div>
+                </div>
 
-                                    <td class="py-3 px-4">
-                                        <div class="flex items-center gap-2">
-                                            <div
-                                                class="h-9 w-9 rounded-full bg-violet-100 border border-violet-200 flex items-center justify-center text-violet-700 font-extrabold text-sm shrink-0">
-                                                <?= strtoupper(substr($f['nombre'], 0, 1)) ?>
-                                            </div>
-                                            <span
-                                                class="font-bold text-slate-800 group-hover:text-violet-700 transition"><?= htmlspecialchars($f['nombre']) ?></span>
-                                        </div>
-                                    </td>
-                                    <td class="py-3 px-4 text-xs">
-                                        <div class="font-semibold text-slate-700"><?= htmlspecialchars($f['cargo'] ?? '-') ?></div>
-                                        <span
-                                            class="text-[10px] text-slate-400"><?= htmlspecialchars($f['departamento'] ?? '') ?></span>
-                                    </td>
-                                    <td class="py-3 px-4 text-xs font-medium text-slate-600">
-                                        <?= htmlspecialchars($f['sucursal_nombre'] ?? '-') ?>
-                                    </td>
-                                    <td class="py-3 px-4 text-xs">
-                                        <?php if (!empty($f['equipos'])): ?>
-                                            <div class="space-y-2">
-                                                <?php foreach ($f['equipos'] as $eq): ?>
-                                                    <div>
-                                                        <div class="font-semibold text-slate-700 flex items-center gap-1">
-                                                            <i class="fa-solid fa-laptop text-cyan-600 text-[10px]"></i>
-                                                            <?= htmlspecialchars($eq['eq_tipo'] . ' ' . $eq['eq_marca'] . ' ' . $eq['eq_modelo']) ?>
-                                                        </div>
-                                                        <span class="text-[10px] text-slate-400 font-mono">S/N:
-                                                            <?= htmlspecialchars($eq['service_tag_sn'] ?? '') ?></span>
-                                                    </div>
-                                                <?php endforeach; ?>
-                                            </div>
-                                        <?php else: ?>
-                                            <span class="text-slate-400 italic text-[11px]">Sin equipo asignado</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="py-3 px-4 text-xs">
-                                        <?php if (!empty($f['m365_correo'])): ?>
-                                            <div class="font-mono text-emerald-700 font-bold text-[11px] flex items-center gap-1">
-                                                <i class="fa-solid fa-cloud text-emerald-500 text-[9px]"></i>
-                                                <?= htmlspecialchars($f['m365_correo']) ?>
-                                            </div>
-                                            <span
-                                                class="text-[10px] text-slate-400"><?= htmlspecialchars($f['licencia_tipo'] ?? '') ?></span>
-                                        <?php else: ?>
-                                            <span class="text-slate-400 italic text-[11px]">Sin cuenta M365</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="py-3 px-4 text-xs">
-                                        <?php if (!empty($f['correo_gmail'])): ?>
-                                            <div class="font-mono text-red-600 font-bold text-[11px] flex items-center gap-1">
-                                                <i class="fa-brands fa-google text-[9px]"></i>
-                                                <?= htmlspecialchars($f['correo_gmail']) ?>
-                                            </div>
-                                        <?php else: ?>
-                                            <span class="text-slate-400 italic text-[11px]">Sin Gmail</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="py-3 px-4 text-center">
-                                        <button
-                                            onclick='event.stopPropagation(); verFichaConsolidada(<?= json_encode($f, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'
-                                            class="h-8 w-8 rounded-lg hover:bg-violet-50 flex items-center justify-center text-violet-600 transition mx-auto"
-                                            title="Abrir Ficha Completa">
-                                            <i class="fa-solid fa-id-card text-xs"></i>
-                                        </button>
+                <!-- Selector de Países (Pills con Banderas) -->
+                <div class="flex items-center gap-2.5 overflow-x-auto pb-1 scrollbar-none">
+                    <button type="button" onclick="seleccionarPais('ALL')" data-pais="ALL" class="pill-pais px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-[#111c44] text-white shadow-md shadow-slate-900/10 border border-slate-800 cursor-pointer shrink-0">
+                        <span>🌐</span>
+                        <span>Todas las Sedes</span>
+                        <span class="bg-white/20 text-white text-[10px] px-2 py-0.5 rounded-full font-mono"><?= $stats_paises['ALL']['total'] ?></span>
+                    </button>
+                    <button type="button" onclick="seleccionarPais('NI')" data-pais="NI" class="pill-pais px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 cursor-pointer shadow-sm shrink-0">
+                        <span>🇳🇮</span>
+                        <span>Nicaragua</span>
+                        <span class="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-full font-mono"><?= $stats_paises['NI']['total'] ?></span>
+                    </button>
+                    <button type="button" onclick="seleccionarPais('HN')" data-pais="HN" class="pill-pais px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 cursor-pointer shadow-sm shrink-0">
+                        <span>🇭🇳</span>
+                        <span>Honduras</span>
+                        <span class="bg-emerald-100 text-emerald-700 text-[10px] px-2 py-0.5 rounded-full font-bold font-mono"><?= $stats_paises['HN']['total'] ?></span>
+                    </button>
+                    <button type="button" onclick="seleccionarPais('SV')" data-pais="SV" class="pill-pais px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 cursor-pointer shadow-sm shrink-0">
+                        <span>🇸🇻</span>
+                        <span>El Salvador</span>
+                        <span class="bg-cyan-100 text-cyan-700 text-[10px] px-2 py-0.5 rounded-full font-bold font-mono"><?= $stats_paises['SV']['total'] ?></span>
+                    </button>
+                    <button type="button" onclick="seleccionarPais('DO')" data-pais="DO" class="pill-pais px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 cursor-pointer shadow-sm shrink-0">
+                        <span>🇩🇴</span>
+                        <span>Rep. Dominicana</span>
+                        <span class="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded-full font-bold font-mono"><?= $stats_paises['DO']['total'] ?></span>
+                    </button>
+                </div>
+
+                <!-- Sub-sedes / Filtros de Oficina Rápida -->
+                <div id="sub-sedes-container" class="pt-1 border-t border-slate-100">
+                    <!-- Para Nicaragua -->
+                    <div class="sub-sede-group flex items-center gap-2 flex-wrap hidden" data-parent-pais="NI">
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Oficina Nicaragua:</span>
+                        <button type="button" onclick="seleccionarSubSede('ALL', this)" class="sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-bold border transition bg-violet-600 text-white border-violet-600 shadow-sm">Todas (96)</button>
+                        <button type="button" onclick="seleccionarSubSede('Managua', this)" class="sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-sm">🏢 Managua (83)</button>
+                        <button type="button" onclick="seleccionarSubSede('León', this)" class="sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-sm">🏢 León (12)</button>
+                        <button type="button" onclick="seleccionarSubSede('Sébaco', this)" class="sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-sm">🏢 Sébaco (1)</button>
+                    </div>
+                    <!-- Para Honduras -->
+                    <div class="sub-sede-group flex items-center gap-2 flex-wrap hidden" data-parent-pais="HN">
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Empresa en Honduras:</span>
+                        <button type="button" onclick="seleccionarSubSede('ALL', this)" class="sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-bold border transition bg-violet-600 text-white border-violet-600 shadow-sm">Ambas Empresas (28)</button>
+                        <button type="button" onclick="seleccionarSubSede('Mastertec', this)" class="sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-indigo-700 hover:bg-indigo-50 transition flex items-center gap-1.5 shadow-sm">
+                            <span class="h-2 w-2 rounded-full bg-indigo-500"></span> Mastertec Honduras (10)
+                        </button>
+                        <button type="button" onclick="seleccionarSubSede('Suministros', this)" class="sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-emerald-700 hover:bg-emerald-50 transition flex items-center gap-1.5 shadow-sm">
+                            <span class="h-2 w-2 rounded-full bg-emerald-500"></span> Suministros Integrales Honduras (18)
+                        </button>
+                    </div>
+                    <!-- Para El Salvador -->
+                    <div class="sub-sede-group flex items-center gap-2 flex-wrap hidden" data-parent-pais="SV">
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Oficina El Salvador:</span>
+                        <span class="px-3 py-1 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1.5">
+                            <span class="h-2 w-2 rounded-full bg-amber-500"></span> Centro de Pintura El Salvador (5 colaboradores)
+                        </span>
+                    </div>
+                    <!-- Para Rep. Dominicana -->
+                    <div class="sub-sede-group flex items-center gap-2 flex-wrap hidden" data-parent-pais="DO">
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Oficina República Dominicana:</span>
+                        <span class="px-3 py-1 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1.5">
+                            <span class="h-2 w-2 rounded-full bg-amber-500"></span> Centro de Pintura Dominicana (2 colaboradores)
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. KPIs Dinámicos de la Sede -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-3">
+                    <div class="h-11 w-11 rounded-2xl bg-violet-50 border border-violet-200 text-violet-600 flex items-center justify-center text-lg shrink-0">
+                        <i class="fa-solid fa-users"></i>
+                    </div>
+                    <div>
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Colaboradores</span>
+                        <span class="text-xl font-extrabold text-slate-800" id="kpi-sede-colab"><?= $stats_paises['ALL']['total'] ?></span>
+                        <span class="text-[11px] text-slate-500 block truncate" id="kpi-sede-titulo">🌐 Todas las Sedes</span>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-3">
+                    <div class="h-11 w-11 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center text-lg shrink-0">
+                        <i class="fa-solid fa-cloud"></i>
+                    </div>
+                    <div>
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Microsoft 365</span>
+                        <span class="text-xl font-extrabold text-emerald-600" id="kpi-sede-m365"><?= $stats_paises['ALL']['m365'] ?></span>
+                        <span class="text-[11px] text-slate-500 block">Cuentas activas vinculadas</span>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-3">
+                    <div class="h-11 w-11 rounded-2xl bg-cyan-50 border border-cyan-200 text-cyan-600 flex items-center justify-center text-lg shrink-0">
+                        <i class="fa-solid fa-laptop"></i>
+                    </div>
+                    <div>
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Hardware con Serie</span>
+                        <span class="text-xl font-extrabold text-cyan-700" id="kpi-sede-equipos"><?= $stats_paises['ALL']['equipos'] ?></span>
+                        <span class="text-[11px] text-slate-500 block">Equipos físicos en BD</span>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex items-center gap-3">
+                    <div class="h-11 w-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center text-lg shrink-0">
+                        <i class="fa-solid fa-key"></i>
+                    </div>
+                    <div>
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Terminales PIN / AG</span>
+                        <span class="text-xl font-extrabold text-amber-600" id="kpi-sede-pin"><?= $stats_paises['ALL']['remotos_pin'] ?></span>
+                        <span class="text-[11px] text-slate-500 block">Accesos locales y web</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Tabla Enriquecida con Fichas Consolidadas -->
+            <div class="glass-panel rounded-2xl overflow-hidden border border-slate-200 bg-white">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left modern-table text-sm">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200 text-slate-700 text-xs">
+                                <th class="py-3.5 px-4 font-bold">Colaborador</th>
+                                <th class="py-3.5 px-4 font-bold">Cargo / Área</th>
+                                <th class="py-3.5 px-4 font-bold">Empresa & Sede</th>
+                                <th class="py-3.5 px-4 font-bold"><i class="fa-solid fa-laptop text-cyan-600 mr-1"></i> Hardware / Terminal</th>
+                                <th class="py-3.5 px-4 font-bold"><i class="fa-solid fa-cloud text-emerald-500 mr-1"></i> Microsoft 365</th>
+                                <th class="py-3.5 px-4 font-bold"><i class="fa-brands fa-google text-red-500 mr-1"></i> Gmail & AG</th>
+                                <th class="py-3.5 px-4 text-center font-bold">Ficha 360°</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($fichas)): ?>
+                                <tr>
+                                    <td colspan="7" class="text-center py-10 text-slate-400">
+                                        No hay colaboradores activos registrados.
                                     </td>
                                 </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
+                            <?php else: ?>
+                                <?php foreach ($fichas as $f): 
+                                    $empresaNombre = $f['empresa_nombre'] ?? '';
+                                    $empClass = 'bg-slate-100 text-slate-700 border-slate-200';
+                                    $avatarClass = 'bg-slate-100 text-slate-700 border-slate-200';
+                                    if (stripos($empresaNombre, 'Mastertec') !== false) {
+                                        $empClass = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                                        $avatarClass = 'bg-indigo-100 text-indigo-700 border-indigo-300';
+                                    } elseif (stripos($empresaNombre, 'Suministros') !== false) {
+                                        $empClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                        $avatarClass = 'bg-emerald-100 text-emerald-700 border-emerald-300';
+                                    } elseif (stripos($empresaNombre, 'Centro') !== false) {
+                                        $empClass = 'bg-amber-50 text-amber-700 border-amber-200';
+                                        $avatarClass = 'bg-amber-100 text-amber-700 border-amber-300';
+                                    }
+                                ?>
+                                    <tr class="item-fila hover:bg-violet-50/40 cursor-pointer transition border-b border-slate-100 group"
+                                        data-empresa="<?= htmlspecialchars($f['empresa_nombre'] ?? '') ?>"
+                                        data-sucursal="<?= htmlspecialchars($f['sucursal_nombre'] ?? '') ?>"
+                                        data-pais="<?= htmlspecialchars($f['pais_code'] ?? '') ?>"
+                                        data-search-text="<?= htmlspecialchars(strtolower($f['nombre'] . ' ' . ($f['cargo'] ?? '') . ' ' . ($f['departamento'] ?? '') . ' ' . ($f['empresa_nombre'] ?? '') . ' ' . ($f['sucursal_nombre'] ?? '') . ' ' . ($f['correo_gmail'] ?? '') . ' ' . ($f['m365_correo'] ?? '') . ' ' . ($f['pc_pin'] ?? '') . ' ' . ($f['pass_ag'] ?? ''))) ?>"
+                                        onclick='verFichaConsolidada(<?= json_encode($f, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
+
+                                        <!-- Colaborador -->
+                                        <td class="py-3.5 px-4">
+                                            <div class="flex items-center gap-2.5">
+                                                <div class="h-9 w-9 rounded-xl border flex items-center justify-center font-extrabold text-sm shrink-0 shadow-xs <?= $avatarClass ?>">
+                                                    <?= strtoupper(substr($f['nombre'], 0, 1)) ?>
+                                                </div>
+                                                <div>
+                                                    <span class="font-bold text-slate-800 group-hover:text-indigo-600 transition block leading-snug">
+                                                        <?= htmlspecialchars($f['nombre']) ?>
+                                                    </span>
+                                                    <span class="text-[11px] text-slate-400 font-medium sm:hidden">
+                                                        <?= htmlspecialchars($f['cargo'] ?? '') ?>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        <!-- Cargo / Área -->
+                                        <td class="py-3.5 px-4 text-xs">
+                                            <div class="font-semibold text-slate-700"><?= htmlspecialchars($f['cargo'] ?? '-') ?></div>
+                                            <span class="text-[10px] text-slate-400 font-medium"><?= htmlspecialchars($f['departamento'] ?? '') ?></span>
+                                        </td>
+
+                                        <!-- Empresa & Sede -->
+                                        <td class="py-3.5 px-4 text-xs">
+                                            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border shadow-xs <?= $empClass ?>">
+                                                <span><?= $f['pais_flag'] ?></span>
+                                                <strong class="font-bold"><?= htmlspecialchars($f['empresa_nombre']) ?></strong>
+                                                <span class="opacity-50">/</span>
+                                                <span><?= htmlspecialchars($f['sucursal_nombre'] ?? '-') ?></span>
+                                            </span>
+                                        </td>
+
+                                        <!-- Hardware Asignado / Terminal Remoto -->
+                                        <td class="py-3.5 px-4 text-xs">
+                                            <?php if (!empty($f['equipos'])): ?>
+                                                <div class="space-y-1">
+                                                    <?php foreach ($f['equipos'] as $eq): ?>
+                                                        <div>
+                                                            <div class="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                                                                <i class="fa-solid fa-laptop text-cyan-600 text-xs"></i>
+                                                                <?= htmlspecialchars($eq['eq_tipo'] . ' ' . $eq['eq_marca'] . ' ' . $eq['eq_modelo']) ?>
+                                                            </div>
+                                                            <span class="text-[10px] text-slate-400 font-mono">S/N: <?= htmlspecialchars($eq['service_tag_sn'] ?? '') ?></span>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            <?php elseif (!empty($f['pc_pin'])): ?>
+                                                <div>
+                                                    <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-xs" title="PIN de PC registrado para inicio de sesión">
+                                                        <i class="fa-solid fa-key text-[10px]"></i> PIN: <?= htmlspecialchars($f['pc_pin']) ?>
+                                                    </div>
+                                                    <span class="text-[10px] text-slate-400 block mt-0.5 font-medium">Terminal Remoto</span>
+                                                </div>
+                                            <?php else: ?>
+                                                <span class="text-slate-400 italic text-[11px]">Sin equipo físico</span>
+                                            <?php endif; ?>
+                                        </td>
+
+                                        <!-- Microsoft 365 -->
+                                        <td class="py-3.5 px-4 text-xs">
+                                            <?php if (!empty($f['m365_correo'])): ?>
+                                                <div class="flex items-center gap-1.5">
+                                                    <span class="font-mono text-emerald-700 font-bold text-xs select-all"><?= htmlspecialchars($f['m365_correo']) ?></span>
+                                                    <button type="button" onclick="event.stopPropagation(); copiarTexto('<?= addslashes($f['m365_correo']) ?>', this);" class="text-slate-400 hover:text-emerald-600 transition p-0.5 rounded" title="Copiar correo">
+                                                        <i class="fa-regular fa-copy text-xs"></i>
+                                                    </button>
+                                                </div>
+                                                <div class="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                                    <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold text-[10px]"><?= htmlspecialchars($f['licencia_tipo'] ?? 'M365') ?></span>
+                                                </div>
+                                            <?php else: ?>
+                                                <span class="text-slate-400 italic text-[11px]">Sin cuenta M365</span>
+                                            <?php endif; ?>
+                                        </td>
+
+                                        <!-- Gmail & AG -->
+                                        <td class="py-3.5 px-4 text-xs">
+                                            <?php if (!empty($f['correo_gmail'])): ?>
+                                                <div class="flex items-center gap-1.5">
+                                                    <i class="fa-brands fa-google text-red-500 text-xs shrink-0"></i>
+                                                    <span class="font-mono text-slate-700 text-xs font-semibold select-all truncate max-w-[170px]" title="<?= htmlspecialchars($f['correo_gmail']) ?>"><?= htmlspecialchars($f['correo_gmail']) ?></span>
+                                                    <button type="button" onclick="event.stopPropagation(); copiarTexto('<?= addslashes($f['correo_gmail']) ?>', this);" class="text-slate-400 hover:text-red-500 transition p-0.5 rounded shrink-0" title="Copiar Gmail">
+                                                        <i class="fa-regular fa-copy text-xs"></i>
+                                                    </button>
+                                                </div>
+                                            <?php endif; ?>
+                                            <?php if (!empty($f['pass_ag'])): ?>
+                                                <div class="mt-1">
+                                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 border border-indigo-100 text-[10px] font-mono text-indigo-700 font-medium">
+                                                        <i class="fa-solid fa-server text-[9px] text-indigo-500"></i> AG: <?= htmlspecialchars($f['pass_ag']) ?>
+                                                    </span>
+                                                </div>
+                                            <?php endif; ?>
+                                            <?php if (empty($f['correo_gmail']) && empty($f['pass_ag'])): ?>
+                                                <span class="text-slate-400 italic text-[11px]">—</span>
+                                            <?php endif; ?>
+                                        </td>
+
+                                        <!-- Ficha Completa -->
+                                        <td class="py-3.5 px-4 text-center">
+                                            <button type="button"
+                                                onclick='event.stopPropagation(); verFichaConsolidada(<?= json_encode($f, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'
+                                                class="px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs font-bold transition border border-violet-200/80 flex items-center gap-1.5 shadow-sm mx-auto"
+                                                title="Abrir Ficha 360° de Colaborador">
+                                                <i class="fa-solid fa-id-card text-xs"></i>
+                                                <span class="hidden sm:inline">Ver Ficha</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Paginación de Credenciales -->
+                <div id="paginacionCredenciales"></div>
             </div>
         </div>
     <?php endif; ?>
@@ -965,7 +1256,7 @@ foreach ($fichas_raw as $f) {
 
         <!-- Footer -->
         <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
-            <button onclick="cerrarModal('modal-det-cred-equipo')"
+            <button onclick="cerrarModal('modal-ficha-consolidada')"
                 class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-md">
                 Cerrar
             </button>
@@ -1419,6 +1710,105 @@ foreach ($fichas_raw as $f) {
         });
     }
 
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    // Variables de estado del Sede Hub
+    let currentPais = 'ALL';
+    let currentSubSede = 'ALL';
+    const statsPaises = <?= json_encode($stats_paises, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+
+    function seleccionarPais(code) {
+        currentPais = code;
+        currentSubSede = 'ALL';
+
+        // 1. Actualizar apariencia de las pills de países
+        document.querySelectorAll('.pill-pais').forEach(btn => {
+            const btnPais = btn.getAttribute('data-pais');
+            if (btnPais === code) {
+                btn.className = 'pill-pais px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-[#111c44] text-white shadow-md shadow-slate-900/10 border border-slate-800 cursor-pointer shrink-0';
+            } else {
+                btn.className = 'pill-pais px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 cursor-pointer shadow-sm shrink-0';
+            }
+        });
+
+        // 2. Controlar la visibilidad de grupos de sub-sedes
+        document.querySelectorAll('.sub-sede-group').forEach(grp => {
+            if (code === 'ALL') {
+                grp.classList.add('hidden');
+            } else if (grp.getAttribute('data-parent-pais') === code) {
+                grp.classList.remove('hidden');
+                // Resetear botones dentro del grupo a 'ALL' activo
+                grp.querySelectorAll('.sub-sede-btn').forEach((b, idx) => {
+                    if (idx === 0) {
+                        b.className = 'sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-bold border transition bg-violet-600 text-white border-violet-600 shadow-sm';
+                    } else {
+                        b.className = 'sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-sm';
+                    }
+                });
+            } else {
+                grp.classList.add('hidden');
+            }
+        });
+
+        // 3. Actualizar KPIs de la Sede
+        actualizarKpisSede(code);
+
+        // 4. Filtrar tabla
+        aplicarFiltros();
+    }
+
+    function seleccionarSubSede(sede, btn) {
+        currentSubSede = sede;
+        if (btn && btn.parentElement) {
+            btn.parentElement.querySelectorAll('.sub-sede-btn').forEach(b => {
+                b.className = 'sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition shadow-sm';
+            });
+            btn.className = 'sub-sede-btn px-3 py-1.5 rounded-xl text-xs font-bold border transition bg-violet-600 text-white border-violet-600 shadow-sm';
+        }
+        aplicarFiltros();
+    }
+
+    function actualizarKpisSede(code) {
+        const data = statsPaises[code] || statsPaises['ALL'];
+        const elColab = document.getElementById('kpi-sede-colab');
+        const elM365 = document.getElementById('kpi-sede-m365');
+        const elEq = document.getElementById('kpi-sede-equipos');
+        const elPin = document.getElementById('kpi-sede-pin');
+        const elTit = document.getElementById('kpi-sede-titulo');
+
+        if (elColab) elColab.innerText = data.total;
+        if (elM365) elM365.innerText = data.m365;
+        if (elEq) elEq.innerText = data.equipos;
+        if (elPin) elPin.innerText = data.remotos_pin;
+        if (elTit) elTit.innerText = (data.flag ? data.flag + ' ' : '') + data.label;
+    }
+
+    function copiarTexto(texto, btn) {
+        if (!texto) return;
+        navigator.clipboard.writeText(texto).then(() => {
+            if (btn) {
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    const prevClass = icon.className;
+                    icon.className = 'fa-solid fa-check text-emerald-500 text-xs';
+                    setTimeout(() => {
+                        icon.className = prevClass;
+                    }, 1200);
+                }
+            }
+        }).catch(err => {
+            console.error('Error al copiar texto: ', err);
+        });
+    }
+
     // Filtros de búsqueda dinámicos y persistencia entre pestañas
     document.addEventListener('DOMContentLoaded', () => {
         const savedQuery = sessionStorage.getItem('filtro_query') || '';
@@ -1446,6 +1836,7 @@ foreach ($fichas_raw as $f) {
         const empresaSelect = document.getElementById('filtro-empresa');
 
         if (!queryInput || !empresaSelect) return;
+        toggleClearBtn('filtro-busqueda', 'btn_clear_credenciales');
 
         const query = normStr(queryInput.value);
         const empresa = normStr(empresaSelect.value);
@@ -1454,35 +1845,45 @@ foreach ($fichas_raw as $f) {
         sessionStorage.setItem('filtro_query', queryInput.value);
         sessionStorage.setItem('filtro_empresa', empresaSelect.value);
 
-        const rows = document.querySelectorAll('.item-fila');
-        rows.forEach(row => {
-            const searchText = normStr(row.getAttribute('data-search-text') || '');
-            const rowEmpresa = normStr(row.getAttribute('data-empresa') || '');
+        if (window.paginadorCredenciales) {
+            window.paginadorCredenciales.setFilter(row => {
+                const searchText = normStr(row.getAttribute('data-search-text') || '');
+                const rowEmpresa = normStr(row.getAttribute('data-empresa') || '');
+                const rowPais = row.getAttribute('data-pais') || '';
+                const rowSucursal = normStr(row.getAttribute('data-sucursal') || '');
 
-            const matchesSearch = (query === '') || searchText.includes(query);
-            const matchesEmpresa = (empresa === '') || (rowEmpresa === empresa) || (rowEmpresa === '');
+                const matchesSearch = (query === '') || searchText.includes(query);
+                const matchesEmpresa = (empresa === '') || (rowEmpresa === empresa) || (rowEmpresa === '');
+                const matchesPais = (currentPais === 'ALL') || (rowPais === currentPais);
 
-            if (matchesSearch && matchesEmpresa) {
-                row.style.display = '';
-            } else {
-                row.style.display = 'none';
-            }
-        });
-
-        // Re-numerar dinámicamente las filas visibles consecutivamente (1, 2, 3...)
-        const tables = document.querySelectorAll('table.modern-table');
-        tables.forEach(table => {
-            let count = 1;
-            const tableRows = table.querySelectorAll('tbody tr.item-fila');
-            tableRows.forEach(row => {
-                if (row.style.display !== 'none') {
-                    const numCell = row.querySelector('.num-cell');
-                    if (numCell) {
-                        numCell.innerText = count++;
-                    }
+                let matchesSubSede = true;
+                if (currentSubSede !== 'ALL') {
+                    const subNorm = normStr(currentSubSede);
+                    matchesSubSede = rowSucursal.includes(subNorm) || rowEmpresa.includes(subNorm);
                 }
+
+                return matchesSearch && matchesEmpresa && matchesPais && matchesSubSede;
             });
-        });
+        }
+    }
+
+    let paginadorCredenciales = null;
+    function initPaginacionCredenciales() {
+        if (typeof TablePaginator !== 'undefined' && document.querySelector('table.modern-table') && document.getElementById('paginacionCredenciales')) {
+            paginadorCredenciales = new TablePaginator({
+                table: 'table.modern-table',
+                container: '#paginacionCredenciales',
+                itemLabel: 'registros',
+                pageSize: 15
+            });
+            window.paginadorCredenciales = paginadorCredenciales;
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPaginacionCredenciales);
+    } else {
+        initPaginacionCredenciales();
     }
 </script>
 
@@ -2560,7 +2961,12 @@ foreach ($fichas_raw as $f) {
         // Header
         document.getElementById('fc_initials').innerText = (f.nombre || 'C').charAt(0).toUpperCase();
         document.getElementById('fc_nombre').innerText = f.nombre || 'Colaborador';
-        document.getElementById('fc_info').innerText = (f.cargo || '') + ' · ' + (f.departamento || '') + ' · ' + (f.sucursal_nombre || '');
+        const flag = f.pais_flag || '';
+        const emp = f.empresa_nombre || '';
+        const suc = f.sucursal_nombre || '';
+        const car = f.cargo || '';
+        const dep = f.departamento || '';
+        document.getElementById('fc_info').innerText = `${flag} ${emp} · Sede ${suc} · ${car}${dep ? ' (' + dep + ')' : ''}`;
         const fcLink = document.getElementById('fc_link_emp');
         if (fcLink) {
             fcLink.href = '../empleados/index.php?details_id=' + f.id;
@@ -2627,6 +3033,39 @@ foreach ($fichas_raw as $f) {
                 `;
                 containerEq.appendChild(eqDiv);
             });
+        } else if (f.pc_pin || f.pass_ag) {
+            const remoteDiv = document.createElement('div');
+            remoteDiv.className = 'border border-indigo-200 rounded-2xl overflow-hidden bg-indigo-50/20';
+            remoteDiv.innerHTML = `
+                <div class="bg-indigo-50 px-4 py-2.5 flex items-center justify-between border-b border-indigo-200">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-network-wired text-indigo-600 text-sm"></i>
+                        <span class="text-xs font-bold text-indigo-800 uppercase tracking-wider">Terminal Remoto / Credencial Local</span>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                        ${escapeHtml(f.pais_nombre || 'Remoto')}
+                    </span>
+                </div>
+                <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-white">
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold">PIN de Inicio de Sesión PC</span>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="font-mono font-bold text-slate-800 text-sm bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">${escapeHtml(f.pc_pin || 'No registrado')}</span>
+                            ${f.pc_pin ? `<button type="button" onclick="navigator.clipboard.writeText('${escapeHtml(f.pc_pin)}'); const ic=this.querySelector('i'); ic.className='fa-solid fa-check text-emerald-500'; setTimeout(()=>ic.className='fa-regular fa-copy', 1200)" class="text-slate-400 hover:text-indigo-600 p-1" title="Copiar PIN"><i class="fa-regular fa-copy text-xs"></i></button>` : ''}
+                        </div>
+                        <span class="text-[10px] text-slate-400 mt-1 block">Acceso local a estación física en sucursal</span>
+                    </div>
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold">Contraseña AG / Sistema</span>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="font-mono font-bold text-indigo-700 text-sm bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-200">${escapeHtml(f.pass_ag || 'No registrada')}</span>
+                            ${f.pass_ag ? `<button type="button" onclick="navigator.clipboard.writeText('${escapeHtml(f.pass_ag)}'); const ic=this.querySelector('i'); ic.className='fa-solid fa-check text-emerald-500'; setTimeout(()=>ic.className='fa-regular fa-copy', 1200)" class="text-slate-400 hover:text-indigo-600 p-1" title="Copiar AG"><i class="fa-regular fa-copy text-xs"></i></button>` : ''}
+                        </div>
+                        <span class="text-[10px] text-slate-400 mt-1 block">Acceso central / ERP corporativo</span>
+                    </div>
+                </div>
+            `;
+            containerEq.appendChild(remoteDiv);
         } else {
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'border border-cyan-100 rounded-2xl p-4 text-center bg-slate-50/50';

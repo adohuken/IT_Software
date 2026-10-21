@@ -15,12 +15,11 @@ $filtro_depto = $_GET['departamento'] ?? '';
 $filtro_tipo = $_GET['tipo'] ?? ''; // 'Laptop', 'Desktop', 'Impresora' o '__otros__' (desde el dashboard)
 $filtro_estado = $_GET['estado'] ?? ''; // 'Asignado', 'Disponible', 'Mantenimiento', 'De Baja'
 
-// Cargar catálogos limpios y agrupados por Empresa para filtros
+// Cargar catálogos limpios y agrupados por Empresa para filtros y creación de equipos
 $sucursales = $db->query("
     SELECT s.id, s.nombre, e.nombre as empresa_nombre 
     FROM sucursales s 
     JOIN empresas e ON s.empresa_id = e.id 
-    WHERE s.id IN (SELECT DISTINCT sucursal_id FROM equipos WHERE sucursal_id IS NOT NULL)
     ORDER BY e.nombre, s.nombre
 ")->fetchAll();
 
@@ -303,7 +302,7 @@ if ($ver_historial_id > 0) {
         </div>
 
         <div class="text-xs text-slate-400 font-medium px-2">
-            Mostrando: <span class="font-bold text-slate-700"><?= count($equipos) ?></span> equipos
+            Mostrando: <span class="font-bold text-slate-700" id="contadorEquiposTop"><?= count($equipos) ?></span> equipos
         </div>
     </div>
 
@@ -312,11 +311,21 @@ if ($ver_historial_id > 0) {
         <form id="form-filtros-equipos" autocomplete="off" method="GET" class="flex flex-col lg:flex-row lg:items-end gap-4">
             <div class="flex-1">
                 <label for="buscar_equipo" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Búsqueda Rápida</label>
-                <div class="relative">
-                    <input type="text" id="buscar_equipo" onkeyup="filtrarTablaEquipos()" placeholder="Buscar por tipo, marca, modelo, S/N, IP, colaborador..." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 placeholder-slate-400 transition-all duration-300">
-                    <span class="absolute left-3.5 top-3 text-slate-450">
+                <div class="relative flex items-center">
+                    <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                         <i class="fa-solid fa-magnifying-glass text-xs"></i>
                     </span>
+                    <input type="text" id="buscar_equipo" 
+                           oninput="toggleClearBtn('buscar_equipo', 'btn_clear_equipo'); filtrarTablaEquipos();" 
+                           onkeydown="if(event.key === 'Escape'){ limpiarBuscador('buscar_equipo', 'btn_clear_equipo', filtrarTablaEquipos); }" 
+                           placeholder="Buscar por tipo, marca, modelo, S/N, IP, colaborador..." 
+                           class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 pl-10 pr-10 text-xs text-slate-800 focus:outline-none focus:border-cyan-400 placeholder-slate-400 transition-all duration-300">
+                    <button type="button" id="btn_clear_equipo" 
+                            onclick="limpiarBuscador('buscar_equipo', 'btn_clear_equipo', filtrarTablaEquipos)" 
+                            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
+                            title="Limpiar búsqueda">
+                        <i class="fa-solid fa-circle-xmark text-sm"></i>
+                    </button>
                 </div>
             </div>
             <div class="w-full lg:w-48">
@@ -479,7 +488,7 @@ if ($ver_historial_id > 0) {
     <!-- Tabla de Equipos -->
     <div class="glass-panel rounded-2xl overflow-hidden">
         <div class="overflow-x-auto">
-            <table class="w-full text-left modern-table text-sm">
+            <table class="w-full text-left modern-table text-sm" id="tablaEquipos">
                 <thead>
                     <tr class="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider">
                         <th class="py-3.5 px-3 text-center w-12">#</th>
@@ -682,6 +691,8 @@ if ($ver_historial_id > 0) {
                 </tbody>
             </table>
         </div>
+        <!-- Contenedor de Paginación de Alta Gama -->
+        <div id="paginacionEquipos"></div>
     </div>
 </div>
 
@@ -720,9 +731,18 @@ if ($ver_historial_id > 0) {
                 <div id="campo_sucursal">
                     <label for="eq_suc" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Ubicación / Sucursal</label>
                     <select autocomplete="off" name="sucursal_id" id="eq_suc" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
-                        <?php foreach ($sucursales as $s): ?>
-                            <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nombre']) ?></option>
+                        <?php 
+                        $mEmp = null;
+                        foreach ($sucursales as $s): 
+                            if ($mEmp !== $s['empresa_nombre']):
+                                if ($mEmp !== null) echo '</optgroup>';
+                                $mEmp = $s['empresa_nombre'];
+                                echo '<optgroup label="🏢 ' . htmlspecialchars($mEmp) . '">';
+                            endif;
+                        ?>
+                            <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['empresa_nombre'] . ' - ' . $s['nombre']) ?></option>
                         <?php endforeach; ?>
+                        <?php if ($mEmp !== null) echo '</optgroup>'; ?>
                     </select>
                 </div>
             </div>
@@ -1290,22 +1310,39 @@ if ($ver_historial_id > 0) {
         aplicarReglasCamposActivo(document.getElementById('eq_tipo').value);
     });
 
+    let paginadorEquipos = null;
+
     function filtrarTablaEquipos() {
         const input = document.getElementById('buscar_equipo');
+        if (!input) return;
+        toggleClearBtn('buscar_equipo', 'btn_clear_equipo');
         const filter = input.value.toLowerCase().trim();
-        const trs = document.querySelectorAll('tbody tr');
 
-        trs.forEach(tr => {
-            if (tr.querySelector('td[colspan]')) return; // Omitir fila vacía
+        if (paginadorEquipos) {
+            paginadorEquipos.setFilter(tr => {
+                const text = tr.innerText.toLowerCase();
+                return !filter || text.includes(filter);
+            });
+        }
+    }
 
-            // Obtener todo el texto de la fila (incluyendo celdas)
-            const text = tr.innerText.toLowerCase();
-            if (text.includes(filter)) {
-                tr.style.display = '';
-            } else {
-                tr.style.display = 'none';
-            }
-        });
+    function initPaginacionEquipos() {
+        if (typeof TablePaginator !== 'undefined') {
+            paginadorEquipos = new TablePaginator({
+                table: '#tablaEquipos',
+                container: '#paginacionEquipos',
+                itemLabel: 'equipos',
+                pageSize: 15,
+                counterEl: '#contadorEquiposTop'
+            });
+            window.paginadorEquipos = paginadorEquipos;
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPaginacionEquipos);
+    } else {
+        initPaginacionEquipos();
     }
 
     // Mover todos los modales al final del body para evitar problemas de stacking context (barra superior sin desenfoque)

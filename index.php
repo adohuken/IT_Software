@@ -52,7 +52,7 @@ try {
 
         $kpis['total_colaboradores'] = (int) $db->query("SELECT COUNT(*) FROM empleados WHERE cargo IS NULL OR cargo NOT IN ('Sucursal', 'Empresa')")->fetchColumn();
         $kpis['total_equipos'] = (int) $db->query("SELECT COUNT(*) FROM equipos")->fetchColumn();
-        $kpis['total_sucursales'] = (int) $db->query("SELECT COUNT(DISTINCT sucursal_id) FROM equipos WHERE sucursal_id IS NOT NULL")->fetchColumn();
+        $kpis['total_sucursales'] = (int) $db->query("SELECT COUNT(DISTINCT sucursal_id) FROM empleados WHERE sucursal_id IS NOT NULL AND (cargo IS NULL OR cargo NOT IN ('Sucursal', 'Empresa'))")->fetchColumn();
         $kpis['tareas_pendientes'] = (int) $db->query("SELECT COUNT(*) FROM tareas_it WHERE estado IN ('Pendiente', 'En Progreso')")->fetchColumn();
 
         // 2. Desglose de tipos de hardware
@@ -102,12 +102,15 @@ try {
             ORDER BY total DESC
         ")->fetchAll(PDO::FETCH_ASSOC);
 
-        // 2d. Totales de Colaboradores por Zona / Ciudad
+        // 2d. Totales de Colaboradores por Zona / País / Sede
         $kpi_colab_ciudades = $db->query("
             SELECT 
                 CASE 
                     WHEN s.nombre LIKE '%Managua%' OR s.ubicacion LIKE '%Managua%' THEN 'Managua'
+                    WHEN s.nombre LIKE '%Honduras%' OR s.ubicacion LIKE '%Honduras%' THEN 'Honduras'
                     WHEN s.nombre LIKE '%Le%' OR s.ubicacion LIKE '%Le%' THEN 'León'
+                    WHEN s.nombre LIKE '%Salvador%' OR s.ubicacion LIKE '%Salvador%' THEN 'El Salvador'
+                    WHEN s.nombre LIKE '%Dominicana%' OR s.ubicacion LIKE '%Dominicana%' THEN 'Rep. Dom.'
                     WHEN s.nombre LIKE '%S_baco%' OR s.ubicacion LIKE '%S_baco%' THEN 'Sébaco'
                     ELSE 'Otras'
                 END AS ciudad,
@@ -117,7 +120,7 @@ try {
             WHERE emp.cargo IS NULL OR emp.cargo NOT IN ('Sucursal', 'Empresa')
             GROUP BY 1
             ORDER BY total DESC
-            LIMIT 3
+            LIMIT 5
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         // 3. Equipos por Sucursal y Empresa

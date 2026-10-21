@@ -154,9 +154,19 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
             <!-- 1. Buscador General por Texto -->
             <div class="lg:col-span-1 relative">
                 <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Buscador General</label>
-                <div class="relative">
-                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
-                    <input type="text" id="filterText" oninput="aplicarFiltros()" placeholder="Nombre, serial..." class="w-full pl-8 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 font-medium focus:outline-none focus:border-emerald-500 focus:bg-white transition">
+                <div class="relative flex items-center">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+                    <input type="text" id="filterText" 
+                           oninput="toggleClearBtn('filterText', 'btn_clear_empleado'); aplicarFiltros();" 
+                           onkeydown="if(event.key === 'Escape'){ limpiarBuscador('filterText', 'btn_clear_empleado', aplicarFiltros); }" 
+                           placeholder="Nombre, serial..." 
+                           class="w-full pl-8 pr-9 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 font-medium focus:outline-none focus:border-emerald-500 focus:bg-white transition">
+                    <button type="button" id="btn_clear_empleado" 
+                            onclick="limpiarBuscador('filterText', 'btn_clear_empleado', aplicarFiltros)" 
+                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
+                            title="Limpiar búsqueda">
+                        <i class="fa-solid fa-circle-xmark text-sm"></i>
+                    </button>
                 </div>
             </div>
 
@@ -318,6 +328,8 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
                 </tbody>
             </table>
         </div>
+        <!-- Paginación de Colaboradores -->
+        <div id="paginacionEmpleados"></div>
     </div>
 </div>
 
@@ -1216,12 +1228,14 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
     function aplicarFiltros() {
         const textQuery = (document.getElementById('filterText').value || '').toLowerCase().trim();
         const empresaVal = (document.getElementById('filterEmpresa').value || '').toLowerCase().trim();
-        const sucursalVal = (document.getElementById('filterSucursal').value || '').toLowerCase().trim();
+        const sucursalSelect = document.getElementById('filterSucursal');
+        const sucursalVal = (sucursalSelect ? sucursalSelect.value : '').toLowerCase().trim();
+        const selectedOpt = sucursalSelect && sucursalSelect.selectedIndex >= 0 ? sucursalSelect.options[sucursalSelect.selectedIndex] : null;
+        const optEmpresa = (selectedOpt && sucursalVal) ? (selectedOpt.getAttribute('data-empresa') || '').toLowerCase().trim() : '';
         const deptoVal = (document.getElementById('filterDepto').value || '').toLowerCase().trim();
         const recursosVal = document.getElementById('filterRecursos').value;
 
         // Filtrar dinámicamente las opciones del select de sucursales según la empresa seleccionada
-        const sucursalSelect = document.getElementById('filterSucursal');
         if (sucursalSelect) {
             const optgroups = sucursalSelect.querySelectorAll('optgroup');
             optgroups.forEach(group => {
@@ -1234,38 +1248,29 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
             });
         }
 
-        const rows = document.querySelectorAll('#tablaEmpleados tbody tr');
-        let visibles = 0;
+        if (window.paginadorEmpleados) {
+            window.paginadorEmpleados.setFilter(row => {
+                const textAll = (row.getAttribute('data-search') || '').toLowerCase();
+                const empresa = (row.getAttribute('data-empresa') || '').toLowerCase();
+                const sucursal = (row.getAttribute('data-sucursal') || '').toLowerCase();
+                const depto = (row.getAttribute('data-depto') || '').toLowerCase();
+                const cantEquipos = parseInt(row.getAttribute('data-equipos') || '0', 10);
+                const tieneM365 = row.getAttribute('data-m365') === 'true';
 
-        rows.forEach(row => {
-            const textAll = (row.getAttribute('data-search') || '').toLowerCase();
-            const empresa = (row.getAttribute('data-empresa') || '').toLowerCase();
-            const sucursal = (row.getAttribute('data-sucursal') || '').toLowerCase();
-            const depto = (row.getAttribute('data-depto') || '').toLowerCase();
-            const cantEquipos = parseInt(row.getAttribute('data-equipos') || '0', 10);
-            const tieneM365 = row.getAttribute('data-m365') === 'true';
+                let matchesText = !textQuery || textAll.includes(textQuery);
+                let matchesEmpresa = (!empresaVal || empresa.includes(empresaVal)) && (!optEmpresa || empresa === optEmpresa);
+                let matchesSucursal = !sucursalVal || sucursal.includes(sucursalVal);
+                let matchesDepto = !deptoVal || depto.includes(deptoVal);
 
-            let matchesText = !textQuery || textAll.includes(textQuery);
-            let matchesEmpresa = !empresaVal || empresa.includes(empresaVal);
-            let matchesSucursal = !sucursalVal || sucursal.includes(sucursalVal);
-            let matchesDepto = !deptoVal || depto.includes(deptoVal);
+                let matchesRecursos = true;
+                if (recursosVal === 'con_equipo') matchesRecursos = cantEquipos > 0;
+                if (recursosVal === 'sin_equipo') matchesRecursos = cantEquipos === 0;
+                if (recursosVal === 'con_m365') matchesRecursos = tieneM365;
+                if (recursosVal === 'sin_m365') matchesRecursos = !tieneM365;
 
-            let matchesRecursos = true;
-            if (recursosVal === 'con_equipo') matchesRecursos = cantEquipos > 0;
-            if (recursosVal === 'sin_equipo') matchesRecursos = cantEquipos === 0;
-            if (recursosVal === 'con_m365') matchesRecursos = tieneM365;
-            if (recursosVal === 'sin_m365') matchesRecursos = !tieneM365;
-
-            if (matchesText && matchesEmpresa && matchesSucursal && matchesDepto && matchesRecursos) {
-                row.style.display = '';
-                visibles++;
-            } else {
-                row.style.display = 'none';
-            }
-        });
-
-        const countElem = document.getElementById('countVisibles');
-        if (countElem) countElem.innerText = visibles;
+                return matchesText && matchesEmpresa && matchesSucursal && matchesDepto && matchesRecursos;
+            });
+        }
     }
 
     function limpiarFiltros() {
@@ -1274,7 +1279,28 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
         if (document.getElementById('filterSucursal')) document.getElementById('filterSucursal').value = '';
         if (document.getElementById('filterDepto')) document.getElementById('filterDepto').value = '';
         if (document.getElementById('filterRecursos')) document.getElementById('filterRecursos').value = '';
+        toggleClearBtn('filterText', 'btn_clear_empleado');
         aplicarFiltros();
+    }
+
+    let paginadorEmpleados = null;
+    function initPaginacionEmpleados() {
+        if (typeof TablePaginator !== 'undefined') {
+            paginadorEmpleados = new TablePaginator({
+                table: '#tablaEmpleados',
+                container: '#paginacionEmpleados',
+                itemLabel: 'colaboradores',
+                pageSize: 15,
+                counterEl: '#countVisibles'
+            });
+            window.paginadorEmpleados = paginadorEmpleados;
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPaginacionEmpleados);
+    } else {
+        initPaginacionEmpleados();
     }
 </script>
 

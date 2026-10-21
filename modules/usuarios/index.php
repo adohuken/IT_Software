@@ -13,8 +13,9 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-$db = Database::getConexion();
-$tab = $_GET['tab'] ?? 'equipo';
+// Redirección unificada al módulo moderno de Equipo de IT
+header('Location: ' . BASE_URL . 'modules/infraestructura/index.php?tab=equipo_it');
+exit;
 
 // 1. Cargar Usuarios de IT
 try {
@@ -168,8 +169,19 @@ require_once __DIR__ . '/../../includes/header.php';
                     <p class="text-xs text-slate-400 mt-0.5">Acceso centralizado a portales web, routers, proveedores y paneles de administración cifrados con AES-256.</p>
                 </div>
 
-                <div class="relative w-full md:w-72">
-                    <input type="text" id="buscar_web" onkeyup="filtrarTablaWeb()" placeholder="Buscar portal, usuario..." class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2 px-3.5 text-xs text-slate-800 focus:outline-none focus:border-cyan-400">
+                <div class="relative w-full md:w-72 flex items-center">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+                    <input type="text" id="buscar_web" 
+                           oninput="toggleClearBtn('buscar_web', 'btn_clear_web'); filtrarTablaWeb();" 
+                           onkeydown="if(event.key === 'Escape'){ limpiarBuscador('buscar_web', 'btn_clear_web', filtrarTablaWeb); }" 
+                           placeholder="Buscar portal, usuario..." 
+                           class="w-full pl-9 pr-9 bg-slate-100 border border-slate-200 rounded-xl py-2 text-xs text-slate-800 focus:outline-none focus:border-cyan-400">
+                    <button type="button" id="btn_clear_web" 
+                            onclick="limpiarBuscador('buscar_web', 'btn_clear_web', filtrarTablaWeb)" 
+                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
+                            title="Limpiar búsqueda">
+                        <i class="fa-solid fa-circle-xmark text-sm"></i>
+                    </button>
                 </div>
             </div>
 
@@ -252,6 +264,8 @@ require_once __DIR__ . '/../../includes/header.php';
                     </tbody>
                 </table>
             </div>
+            <!-- Paginación de Bóveda Web IT -->
+            <div id="paginacionWeb"></div>
         </div>
     <?php endif; ?>
 </div>
@@ -481,15 +495,37 @@ require_once __DIR__ . '/../../includes/header.php';
         });
     }
 
+    let paginadorWeb = null;
+
     function filtrarTablaWeb() {
         const input = document.getElementById('buscar_web');
         if (!input) return;
+        toggleClearBtn('buscar_web', 'btn_clear_web');
         const filter = input.value.toLowerCase().trim();
-        const trs = document.querySelectorAll('#tabla_web tbody tr');
-        trs.forEach(tr => {
-            if (tr.innerText.toLowerCase().includes(filter)) tr.style.display = '';
-            else tr.style.display = 'none';
-        });
+
+        if (paginadorWeb) {
+            paginadorWeb.setFilter(tr => {
+                return !filter || tr.innerText.toLowerCase().includes(filter);
+            });
+        }
+    }
+
+    function initPaginacionWeb() {
+        if (typeof TablePaginator !== 'undefined' && document.getElementById('tabla_web') && document.getElementById('paginacionWeb')) {
+            paginadorWeb = new TablePaginator({
+                table: '#tabla_web',
+                container: '#paginacionWeb',
+                itemLabel: 'accesos web',
+                pageSize: 15
+            });
+            window.paginadorWeb = paginadorWeb;
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPaginacionWeb);
+    } else {
+        initPaginacionWeb();
     }
 </script>
 
