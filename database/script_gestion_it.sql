@@ -176,6 +176,39 @@ CREATE TABLE IF NOT EXISTS `tareas_it` (
     INDEX `idx_asignado_tarea` (`asignado_a`),
     INDEX `idx_estado_tarea` (`estado`),
     INDEX `idx_fecha_limite` (`fecha_limite`)
+-- --------------------------------------------------------
+-- 12. Tabla de Proveedores de Internet & Enlaces WAN
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `proveedores_internet` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `empresa_id` INT NOT NULL,
+    `sucursal_id` INT NOT NULL,
+    `proveedor` VARCHAR(100) NOT NULL,
+    `numero_cliente` VARCHAR(100) DEFAULT NULL,
+    `plan_servicio` VARCHAR(150) DEFAULT NULL,
+    `tipo_enlace` ENUM('Principal', 'Backup / Respaldo', 'Dedicado', 'Banda Ancha') DEFAULT 'Principal',
+    `medio_transmision` ENUM('Fibra Óptica', 'Radioenlace', 'Cobre / HFC', 'Satelital', '4G / 5G LTE', 'Otro') DEFAULT 'Fibra Óptica',
+    `velocidad_bajada` VARCHAR(50) DEFAULT NULL,
+    `velocidad_subida` VARCHAR(50) DEFAULT NULL,
+    `tipo_ip` ENUM('IP Fija / Estática', 'IP Dinámica / DHCP', 'PPPoE') DEFAULT 'IP Fija / Estática',
+    `ip_publica` VARCHAR(50) DEFAULT NULL,
+    `mascara_subred` VARCHAR(50) DEFAULT NULL,
+    `puerta_enlace` VARCHAR(50) DEFAULT NULL,
+    `dns_preferido` VARCHAR(50) DEFAULT NULL,
+    `dns_alternativo` VARCHAR(50) DEFAULT NULL,
+    `vlan_id` VARCHAR(20) DEFAULT NULL,
+    `equipo_terminal` VARCHAR(150) DEFAULT NULL,
+    `contacto_soporte` VARCHAR(200) DEFAULT NULL,
+    `costo_mensual` DECIMAL(10,2) DEFAULT NULL,
+    `moneda` ENUM('USD', 'NIO', 'HNL', 'SVC', 'DOP') DEFAULT 'USD',
+    `estado` ENUM('Activo', 'Inactivo', 'En Mantenimiento', 'Suspendido') DEFAULT 'Activo',
+    `notas` TEXT DEFAULT NULL,
+    `creado_en` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `actualizado_en` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT `fk_isp_empresa` FOREIGN KEY (`empresa_id`) REFERENCES `empresas`(`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_isp_sucursal` FOREIGN KEY (`sucursal_id`) REFERENCES `sucursales`(`id`) ON DELETE CASCADE,
+    INDEX `idx_isp_empresa` (`empresa_id`),
+    INDEX `idx_isp_sucursal` (`sucursal_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------

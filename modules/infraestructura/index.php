@@ -397,6 +397,11 @@ require_once __DIR__ . '/../../includes/header.php';
             <span>Matriz de Subredes & IPs</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-black <?= $tab === 'matriz_ip' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600' ?>"><?= count($subredes_procesadas) ?></span>
         </a>
+        <a href="../internet/index.php" class="px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 bg-white/60 text-slate-600 hover:bg-white hover:text-slate-800 border border-slate-200/80">
+            <i class="fa-solid fa-globe text-cyan-600"></i>
+            <span>Proveedores de Internet</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-cyan-100 text-cyan-700 font-mono">WAN</span>
+        </a>
     </div>
 
     <!-- TAB 1: DISPOSITIVOS IP & RED -->

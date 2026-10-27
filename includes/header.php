@@ -59,6 +59,13 @@ $menu_sections = [
     [
         'header' => 'Redes & Conectividad',
         'items'  => [
+            'internet' => [
+                'titulo' => 'Proveedores de Internet & Enlaces WAN',
+                'label'  => 'Proveedores de Internet',
+                'url'    => BASE_URL . 'modules/internet/index.php',
+                'icono'  => 'fa-solid fa-globe',
+                'active' => (strpos($uri, '/internet/') !== false)
+            ],
             'infraestructura' => [
                 'titulo'   => 'Infraestructura & Redes IP',
                 'label'    => 'Infraestructura & Redes',
