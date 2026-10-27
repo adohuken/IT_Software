@@ -16,31 +16,11 @@ require_once __DIR__ . '/../../config/security.php';
 
 $db = Database::getConexion();
 
-// Auto-sincronizar correos corporativos de credenciales_personales hacia cuentas_m365 si aún no existen
-$db->exec("
-    INSERT IGNORE INTO cuentas_m365 (empleado_id, correo, licencia_tipo, password_cifrado, fecha_inicializacion, ciclo_facturacion, fecha_proximo_pago, estado)
-    SELECT 
-        cp.empleado_id,
-        cp.usuario AS correo,
-        CASE 
-            WHEN LOWER(COALESCE(e.cargo, '')) LIKE '%geren%' OR LOWER(COALESCE(e.departamento, '')) LIKE '%geren%' THEN 'Microsoft 365 Business Premium'
-            ELSE 'Microsoft 365 Business Standard'
-        END AS licencia_tipo,
-        cp.password_cifrado,
-        CURRENT_DATE() AS fecha_inicializacion,
-        'Mensual' AS ciclo_facturacion,
-        DATE_ADD(CURRENT_DATE(), INTERVAL 1 MONTH) AS fecha_proximo_pago,
-        CASE WHEN e.estado = 'Inactivo' THEN 'Suspendida' ELSE 'Activa' END AS estado
-    FROM credenciales_personales cp
-    JOIN empleados e ON cp.empleado_id = e.id
-    WHERE cp.tipo = 'Correo Corporativo' 
-      AND cp.usuario IS NOT NULL 
-      AND TRIM(cp.usuario) != ''
-      AND cp.usuario NOT IN (SELECT correo FROM cuentas_m365 WHERE correo IS NOT NULL)
-");
-
-// Determinar pestaña activa
-$tab = $_GET['tab'] ?? 'equipos';
+// Determinar pestaña activa (Por defecto: Fichas Consolidadas)
+$tab = $_GET['tab'] ?? 'fichas';
+if ($tab === 'equipos') {
+    $tab = 'fichas';
+}
 
 // Cargar catálogos para formularios de creación
 $equipos = $db->query("SELECT id, tipo, marca, modelo, service_tag_sn FROM equipos WHERE estado != 'De Baja' AND id NOT IN (SELECT equipo_id FROM credenciales_equipos) ORDER BY tipo, marca")->fetchAll();
@@ -423,39 +403,35 @@ foreach ($fichas_raw as $f) {
     <!-- Encabezado de Página -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Gestión de Credenciales y Licencias</h2>
-            <p class="text-slate-500 text-sm">Almacén cifrado seguro para accesos locales de equipos y cuentas Microsoft 365.</p>
+            <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Cuentas & Accesos de Colaboradores</h2>
+            <p class="text-slate-500 text-sm">Control unificado de las 4 llaves corporativas: Microsoft 365 / Azure AD, PIN Windows, Gmail móvil y Sistema AG.</p>
         </div>
 
         <!-- Botones de Acción según Pestaña -->
         <div>
-            <?php if ($tab === 'equipos'): ?>
-                <button onclick="abrirNuevaCredencialEquipo()"
-                    class="px-4 py-2.5 rounded-xl grad-cyan-blue hover:opacity-90 text-slate-800 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/10 flex items-center gap-2">
-                    <i class="fa-solid fa-plus"></i> Nueva Credencial Equipo
-                </button>
-            <?php elseif ($tab === 'm365'): ?>
+            <?php if ($tab === 'm365'): ?>
                 <button onclick="abrirModal('modal-m365')"
                     class="px-4 py-2.5 rounded-xl grad-cyan-blue hover:opacity-90 text-slate-800 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/10 flex items-center gap-2">
                     <i class="fa-solid fa-plus"></i> Nueva Cuenta M365
                 </button>
+            <?php else: ?>
+                <a href="../empleados/index.php"
+                    class="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm tracking-wide shadow-lg shadow-violet-500/20 flex items-center gap-2 transition">
+                    <i class="fa-solid fa-users"></i> Directorio de Colaboradores
+                </a>
             <?php endif; ?>
         </div>
     </div>
 
     <!-- Pestañas (Tabs) de navegación de submódulos -->
     <div class="border-b border-slate-200 flex gap-1 flex-wrap">
-        <a href="?tab=equipos"
-            class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'equipos') ? 'border-cyan-400 text-slate-800 bg-white/5 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
-            <i class="fa-solid fa-desktop text-xs"></i> Credenciales de Equipos
+        <a href="?tab=fichas"
+            class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'fichas') ? 'border-violet-500 text-violet-700 bg-violet-50/50 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
+            <i class="fa-solid fa-id-card text-xs <?= ($tab === 'fichas') ? 'text-violet-600' : '' ?>"></i> Fichas de Acceso (4 Llaves)
         </a>
         <a href="?tab=m365"
-            class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'm365') ? 'border-cyan-400 text-slate-800 bg-white/5 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
-            <i class="fa-solid fa-cloud text-xs text-cyan-400"></i> Microsoft 365 / Facturación
-        </a>
-        <a href="?tab=fichas"
-            class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'fichas') ? 'border-violet-500 text-slate-800 bg-white/5 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
-            <i class="fa-solid fa-id-card text-xs <?= ($tab === 'fichas') ? 'text-violet-600' : '' ?>"></i> Fichas Consolidadas
+            class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'm365') ? 'border-cyan-400 text-cyan-800 bg-cyan-50/50 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
+            <i class="fa-solid fa-cloud text-xs text-cyan-500"></i> Microsoft 365 / Licencias & Facturación
         </a>
     </div>
 
@@ -1255,9 +1231,13 @@ foreach ($fichas_raw as $f) {
         </div>
 
         <!-- Footer -->
-        <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+        <div class="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+            <a href="#" id="fc_link_directorio" target="_blank"
+                class="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5">
+                <i class="fa-solid fa-user-pen"></i> Abrir en Directorio
+            </a>
             <button onclick="cerrarModal('modal-ficha-consolidada')"
-                class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-md">
+                class="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition shadow-sm">
                 Cerrar
             </button>
         </div>
@@ -2971,6 +2951,10 @@ foreach ($fichas_raw as $f) {
         if (fcLink) {
             fcLink.href = '../empleados/index.php?details_id=' + f.id;
         }
+        const fcLinkDir = document.getElementById('fc_link_directorio');
+        if (fcLinkDir) {
+            fcLinkDir.href = '../empleados/index.php?details_id=' + f.id;
+        }
 
         // Equipos asignados
         const containerEq = document.getElementById('fc_equipos_container');
@@ -3013,8 +2997,20 @@ foreach ($fichas_raw as $f) {
                         </div>
                         <div></div>
                         <div>
-                            <span class="text-[11px] text-slate-400 block font-semibold">Usuario Local</span>
-                            <span class="font-mono font-bold text-slate-800">${escapeHtml(eq.usuario_local || 'Sin usuario local')}</span>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Acceso a Windows</span>
+                            <span class="font-bold text-indigo-700 flex items-center gap-1.5"><i class="fa-brands fa-windows text-blue-500"></i> Azure AD / PIN</span>
+                        </div>
+                        <div class="col-span-2">
+                            <span class="text-[11px] text-slate-400 block font-semibold mb-1">PIN de Seguridad PC</span>
+                            <div class="flex items-center gap-2">
+                                <span class="font-mono font-bold text-slate-800 text-xs bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 select-all">${escapeHtml(f.pc_pin || 'No registrado')}</span>
+                                ${f.pc_pin ? `<button type="button" onclick="navigator.clipboard.writeText('${escapeHtml(f.pc_pin)}'); const ic=this.querySelector('i'); ic.className='fa-solid fa-check text-emerald-500'; setTimeout(()=>ic.className='fa-regular fa-copy', 1200)" class="text-slate-400 hover:text-indigo-600 p-1" title="Copiar PIN"><i class="fa-regular fa-copy text-xs"></i></button>` : ''}
+                            </div>
+                        </div>
+                        ${eq.usuario_local ? `
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Usuario Local Admin</span>
+                            <span class="font-mono font-bold text-slate-800">${escapeHtml(eq.usuario_local)}</span>
                         </div>
                         <div class="col-span-2">
                             <span class="text-[11px] text-slate-400 block font-semibold mb-1">Contraseña Local</span>
@@ -3024,7 +3020,7 @@ foreach ($fichas_raw as $f) {
                                     <i class="fa-solid fa-eye" id="${iconId}"></i>
                                 </button>
                             </div>
-                        </div>
+                        </div>` : ''}
                         <div class="col-span-3 ${isBitlocker ? '' : 'hidden'}">
                             <span class="text-[11px] text-slate-400 block font-semibold">Clave BitLocker</span>
                             <span class="font-mono font-bold text-slate-800 text-xs select-all bg-slate-100 px-2 py-1 rounded mt-0.5 inline-block">${escapeHtml(eq.eq_bitlocker_plain || '')}</span>

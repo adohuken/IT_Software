@@ -77,9 +77,6 @@ try {
             if (!empty($correo_gmail) || !empty($pass_gmail_enc)) {
                 $stmt_cred->execute([$empleado_id, 'Gmail', $correo_gmail, $pass_gmail_enc]);
             }
-            if (!empty($correo_corp) || !empty($pass_correo_enc)) {
-                $stmt_cred->execute([$empleado_id, 'Correo Corporativo', $correo_corp, $pass_correo_enc]);
-            }
             if (!empty($pc_pin_enc)) {
                 $stmt_cred->execute([$empleado_id, 'PC PIN', null, $pc_pin_enc]);
             }
@@ -382,10 +379,7 @@ try {
                 if (!empty($correoGmail) || !empty($passGmailCifrado)) {
                     $stmt_cred->execute([$empleadoId, 'Gmail', $correoGmail, $passGmailCifrado]);
                 }
-                if (!empty($correo) || !empty($passCorreoCifrado)) {
-                    $stmt_cred->execute([$empleadoId, 'Correo Corporativo', $correo, $passCorreoCifrado]);
-
-                    if (!empty($correo)) {
+                if (!empty($correo)) {
                         $licenciaTipo = 'Microsoft 365 Business Standard';
                         if (strpos(strtolower($area ?? ''), 'geren') !== false || strpos(strtolower($cargo ?? ''), 'geren') !== false || strpos(strtolower($nombre), 'geren') !== false) {
                             $licenciaTipo = 'Microsoft 365 Business Premium';
@@ -413,7 +407,6 @@ try {
                             $stmtInsM365->execute([$empleadoId, $correo, $licenciaTipo, $passCorreoCifrado, $fechaInit, $fechaPago, $estadoM365]);
                         }
                     }
-                }
                 if (!empty($pcPinCifrado)) {
                     $stmt_cred->execute([$empleadoId, 'PC PIN', null, $pcPinCifrado]);
                 }

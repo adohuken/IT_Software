@@ -115,13 +115,6 @@ $menu_sections = [
                         'icono'  => 'fa-solid fa-cloud',
                         'active' => (strpos($uri, '/credenciales/') !== false && $current_tab === 'm365')
                     ],
-                    'equipos' => [
-                        'titulo' => 'Credenciales de Equipos',
-                        'label'  => 'Credenciales de Equipos',
-                        'url'    => BASE_URL . 'modules/credenciales/index.php?tab=equipos',
-                        'icono'  => 'fa-solid fa-desktop',
-                        'active' => (strpos($uri, '/credenciales/') !== false && $current_tab === 'equipos')
-                    ],
                 ]
             ],
         ]
@@ -153,14 +146,21 @@ $menu_sections = [
         ]
     ],
     [
-        'header' => 'Sistema',
+        'header' => 'Organización & Sistema',
         'items'  => [
+            'sucursales' => [
+                'titulo' => 'Sedes & Sucursales',
+                'label'  => 'Sedes & Sucursales',
+                'url'    => BASE_URL . 'modules/configuracion/sucursales.php',
+                'icono'  => 'fa-solid fa-building',
+                'active' => (strpos($uri, '/configuracion/sucursales.php') !== false)
+            ],
             'configuracion' => [
                 'titulo' => 'Configuración del Sistema',
                 'label'  => 'Configuración',
                 'url'    => BASE_URL . 'modules/configuracion/index.php',
                 'icono'  => 'fa-solid fa-sliders',
-                'active' => (strpos($uri, '/configuracion/') !== false)
+                'active' => (strpos($uri, '/configuracion/') !== false && strpos($uri, '/configuracion/sucursales.php') === false)
             ],
         ]
     ],

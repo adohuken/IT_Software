@@ -79,6 +79,13 @@ if ($details_id > 0) {
                 $cred['password_clear'] = '';
             }
         }
+        $ficha_pc_pin = '';
+        foreach ($ficha_cred_pers as $fcp) {
+            if ($fcp['tipo'] === 'PC PIN') {
+                $ficha_pc_pin = $fcp['password_clear'];
+                break;
+            }
+        }
     }
 }
 
@@ -658,30 +665,42 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
                                 <span class="font-bold text-slate-800"><?= htmlspecialchars($ficha_equipo['tipo'] . ' ' . $ficha_equipo['marca'] . ' ' . $ficha_equipo['modelo']) ?></span>
                                 <span class="text-slate-400 font-mono">S/N: <?= htmlspecialchars($ficha_equipo['service_tag_sn']) ?></span>
                             </div>
+                            <div class="grid grid-cols-2 gap-3 text-xs">
+                                <div>
+                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Acceso a Windows</span>
+                                    <div class="text-indigo-700 font-bold bg-indigo-50/70 p-2.5 rounded-lg mt-1 border border-indigo-200 flex items-center gap-1.5">
+                                        <i class="fa-brands fa-windows text-blue-500"></i> Azure AD / Windows
+                                    </div>
+                                </div>
+                                <div>
+                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">PIN de Seguridad PC</span>
+                                    <div class="text-slate-800 font-mono font-bold bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all">
+                                        <?= !empty($ficha_pc_pin) ? htmlspecialchars($ficha_pc_pin) : '<span class="text-slate-400 italic font-normal">No registrado</span>' ?>
+                                    </div>
+                                </div>
+                            </div>
                             <?php if (!empty($ficha_equipo['usuario_local'])): ?>
-                                <div class="grid grid-cols-2 gap-3 text-xs">
+                                <div class="grid grid-cols-2 gap-3 text-xs pt-1">
                                     <div>
-                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Usuario Local</span>
+                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Usuario Local Admin</span>
                                         <div class="text-slate-600 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200"><?= htmlspecialchars($ficha_equipo['usuario_local']) ?></div>
                                     </div>
                                     <div>
-                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Contraseña Windows</span>
-                                        <div class="text-cyan-400 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all"><?= htmlspecialchars($password_clear) ?></div>
+                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Contraseña Local Admin</span>
+                                        <div class="text-cyan-600 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all"><?= htmlspecialchars($password_clear) ?></div>
                                     </div>
                                 </div>
-                                <?php if (!empty($ficha_equipo['clave_bitlocker'])): ?>
-                                    <div class="text-xs pt-1">
-                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Clave BitLocker de Recuperación</span>
-                                        <div class="text-amber-400 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all whitespace-pre-wrap break-all text-[11px]"><?= htmlspecialchars($bitlocker_clear) ?></div>
-                                    </div>
-                                <?php endif; ?>
-                                <?php if (!empty($ficha_equipo['notes_acceso']) || !empty($ficha_equipo['notas_acceso'])): ?>
-                                    <div class="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                                        <strong class="text-slate-800">Notas de acceso:</strong> <?= htmlspecialchars($ficha_equipo['notas_acceso'] ?? $ficha_equipo['notes_acceso']) ?>
-                                    </div>
-                                <?php endif; ?>
-                            <?php else: ?>
-                                <p class="text-xs text-slate-400 italic">El hardware no tiene credenciales de acceso registradas.</p>
+                            <?php endif; ?>
+                            <?php if (!empty($ficha_equipo['clave_bitlocker'])): ?>
+                                <div class="text-xs pt-1">
+                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Clave BitLocker de Recuperación</span>
+                                    <div class="text-amber-500 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all whitespace-pre-wrap break-all text-[11px]"><?= htmlspecialchars($bitlocker_clear) ?></div>
+                                </div>
+                            <?php endif; ?>
+                            <?php if (!empty($ficha_equipo['notes_acceso']) || !empty($ficha_equipo['notas_acceso'])): ?>
+                                <div class="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                                    <strong class="text-slate-800">Notas de acceso:</strong> <?= htmlspecialchars($ficha_equipo['notas_acceso'] ?? $ficha_equipo['notes_acceso']) ?>
+                                </div>
                             <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
