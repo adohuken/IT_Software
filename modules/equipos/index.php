@@ -1271,7 +1271,7 @@ if ($ver_historial_id > 0) {
                     if (inputProc) inputProc.placeholder = 'Ej: Snapdragon 8 Gen 2 / A16 Bionic';
                     if (lblRam) lblRam.innerText = 'Memoria RAM';
                     if (inputRam) inputRam.placeholder = 'Ej: 6GB / 8GB';
-                    if (lblDisco) lblDisco.innerText = 'Almacenamiento Interno';
+                    if (lblDisco) lblDisco.innerText = 'Almacenamiento';
                     if (inputDisco) inputDisco.placeholder = 'Ej: 128GB / 256GB';
                 } else {
                     if (lblProc) lblProc.innerText = 'Procesador';
