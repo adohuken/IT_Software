@@ -128,6 +128,7 @@ $sucursales_raw = $db->query("
     JOIN empresas e ON s.empresa_id = e.id 
     ORDER BY e.nombre, s.nombre
 ")->fetchAll();
+$sucursales = $sucursales_raw;
 $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_sn FROM equipos WHERE estado = 'Disponible' ORDER BY tipo, marca")->fetchAll();
 $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE departamento IS NOT NULL AND departamento != '' ORDER BY departamento")->fetchAll(PDO::FETCH_COLUMN);
 ?>
