@@ -371,9 +371,18 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
                         <select autocomplete="off" name="sucursal_id" id="emp_suc" required 
                                 class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400">
                             <option value="" disabled selected>Selecciona sucursal...</option>
-                            <?php foreach ($sucursales as $s): ?>
-                                <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nombre']) ?></option>
+                            <?php 
+                            $cur_emp = "";
+                            foreach ($sucursales as $s): 
+                                if ($s["empresa_nombre"] !== $cur_emp):
+                                    if ($cur_emp !== "") echo "</optgroup>";
+                                    $cur_emp = $s["empresa_nombre"];
+                            ?>
+                                <optgroup label="<?= htmlspecialchars($cur_emp) ?>">
+                            <?php endif; ?>
+                                <option value="<?= $s["id"] ?>"><?= htmlspecialchars($s["nombre"]) ?></option>
                             <?php endforeach; ?>
+                            <?php if ($cur_emp !== "") echo "</optgroup>"; ?>
                             <option value="NEW_SUC" class="font-bold text-blue-600 bg-blue-50">+ Agregar nueva sucursal...</option>
                         </select>
                     </div>
@@ -914,9 +923,18 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
                 <div>
                     <label class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Sucursal</label>
                     <select autocomplete="off" name="sucursal_id" id="edit_emp_sucursal" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400">
-                        <?php foreach ($sucursales as $suc): ?>
-                            <option value="<?= $suc['id'] ?>"><?= htmlspecialchars($suc['nombre']) ?></option>
+                        <?php 
+                        $cur_emp2 = "";
+                        foreach ($sucursales as $suc): 
+                            if ($suc["empresa_nombre"] !== $cur_emp2):
+                                if ($cur_emp2 !== "") echo "</optgroup>";
+                                $cur_emp2 = $suc["empresa_nombre"];
+                        ?>
+                            <optgroup label="<?= htmlspecialchars($cur_emp2) ?>">
+                        <?php endif; ?>
+                            <option value="<?= $suc["id"] ?>"><?= htmlspecialchars($suc["nombre"]) ?></option>
                         <?php endforeach; ?>
+                        <?php if ($cur_emp2 !== "") echo "</optgroup>"; ?>
                         <option value="NEW_SUC" class="font-bold text-blue-600 bg-blue-50">+ Agregar nueva sucursal...</option>
                     </select>
                 </div>
