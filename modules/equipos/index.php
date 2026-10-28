@@ -711,7 +711,6 @@ if ($ver_historial_id > 0) {
                     <select autocomplete="off" name="tipo" id="eq_tipo" required onchange="aplicarReglasCamposActivo(this.value)" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                         <option value="Laptop" selected>Laptop</option>
                         <option value="Desktop">Desktop</option>
-                        <option value="Impresora">Impresora</option>
                         <option value="Monitor">Monitor</option>
                         <option value="Celular">Celular</option>
                         <option value="__otro__">+ Agregar otro tipo...</option>
@@ -721,11 +720,8 @@ if ($ver_historial_id > 0) {
                     </div>
                 </div>
                 <div id="campo_sucursal">
-                    <div class="flex items-center justify-between mb-2">
+                    <div class="mb-2">
                         <label for="eq_suc" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Ubicación / Sucursal</label>
-                        <button type="button" onclick="abrirModalNuevaSucursalEquipos()" class="text-[11px] text-cyan-600 hover:text-cyan-800 font-bold flex items-center gap-1 transition">
-                            <i class="fa-solid fa-plus text-[10px]"></i> Nueva Sucursal
-                        </button>
                     </div>
                     <select autocomplete="off" name="sucursal_id" id="eq_suc" required class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                         <?php 
@@ -758,18 +754,18 @@ if ($ver_historial_id > 0) {
                 <input type="text" name="service_tag_sn" id="eq_sn" required placeholder="Código Único de Serie" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
             </div>
 
-            <!-- Grupo Hardware (Oculto para impresoras / periféricos) -->
+            <!-- Grupo Hardware (Oculto para periféricos como monitores) -->
             <div id="grupo_hardware" class="grid grid-cols-3 gap-4">
                 <div>
-                    <label for="eq_procesador" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Procesador</label>
+                    <label for="eq_procesador" id="lbl_eq_procesador" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Procesador</label>
                     <input type="text" name="procesador" id="eq_procesador" placeholder="Ej: i5 11va Gen" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
                 <div>
-                    <label for="eq_ram" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">RAM</label>
+                    <label for="eq_ram" id="lbl_eq_ram" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">RAM</label>
                     <input type="text" name="ram" id="eq_ram" placeholder="Ej: 16GB DDR4" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
                 <div>
-                    <label for="eq_disco" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Disco</label>
+                    <label for="eq_disco" id="lbl_eq_disco" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Disco</label>
                     <input type="text" name="disco" id="eq_disco" placeholder="Ej: 512GB SSD" class="w-full bg-slate-100 border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
                 </div>
             </div>
@@ -915,6 +911,18 @@ if ($ver_historial_id > 0) {
                     <div id="det_ip_wrapper">
                         <span class="text-[11px] text-slate-400 block font-semibold">Dirección IP</span>
                         <span class="font-mono text-slate-800" id="det_ip">--</span>
+                    </div>
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold" id="det_lbl_procesador">Procesador</span>
+                        <span class="font-semibold text-slate-800" id="det_procesador">--</span>
+                    </div>
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold" id="det_lbl_ram">Memoria RAM</span>
+                        <span class="font-semibold text-slate-800 font-mono" id="det_ram">--</span>
+                    </div>
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold" id="det_lbl_disco">Disco / Almacenamiento</span>
+                        <span class="font-semibold text-slate-800 font-mono" id="det_disco">--</span>
                     </div>
                     <div>
                         <span class="text-[11px] text-slate-400 block font-semibold">Sucursal</span>
@@ -1113,6 +1121,25 @@ if ($ver_historial_id > 0) {
         document.getElementById('det_tipo').innerText = eq.tipo || '--';
         document.getElementById('det_marca_modelo').innerText = (eq.marca || '') + ' ' + (eq.modelo || '');
         document.getElementById('det_sn').innerText = eq.service_tag_sn || 'N/A';
+
+        // Especificaciones de Hardware (Procesador, RAM, Disco / Almacenamiento)
+        const detProc = document.getElementById('det_procesador');
+        const detRam = document.getElementById('det_ram');
+        const detDisco = document.getElementById('det_disco');
+        const detLblProc = document.getElementById('det_lbl_procesador');
+        const detLblDisco = document.getElementById('det_lbl_disco');
+
+        if (eq.tipo === 'Celular') {
+            if (detLblProc) detLblProc.innerText = 'Chip / CPU';
+            if (detLblDisco) detLblDisco.innerText = 'Almacenamiento';
+        } else {
+            if (detLblProc) detLblProc.innerText = 'Procesador';
+            if (detLblDisco) detLblDisco.innerText = 'Disco / Almacenamiento';
+        }
+        if (detProc) detProc.innerText = eq.procesador || '--';
+        if (detRam) detRam.innerText = eq.ram || '--';
+        if (detDisco) detDisco.innerText = eq.disco || '--';
+
         const isClientDevice = ['Laptop', 'Desktop', 'Celular'].includes(eq.tipo);
         
         if (isClientDevice) {
@@ -1129,6 +1156,7 @@ if ($ver_historial_id > 0) {
         const iconEl = document.getElementById('det_icon');
         if (eq.tipo === 'Laptop') iconEl.className = 'fa-solid fa-laptop';
         else if (eq.tipo === 'Desktop') iconEl.className = 'fa-solid fa-desktop';
+        else if (eq.tipo === 'Celular') iconEl.className = 'fa-solid fa-mobile-screen';
         else if (eq.tipo === 'Servidor') iconEl.className = 'fa-solid fa-server';
         else if (eq.tipo === 'Switch' || eq.tipo === 'Firewall' || eq.tipo === 'Access Point') iconEl.className = 'fa-solid fa-network-wired';
         else iconEl.className = 'fa-solid fa-microchip';
@@ -1216,6 +1244,12 @@ if ($ver_historial_id > 0) {
         const containerOtro = document.getElementById('eq_tipo_otro_container');
         const inputOtro = document.getElementById('eq_tipo_otro');
         const grupoHardware = document.getElementById('grupo_hardware');
+        const lblProc = document.getElementById('lbl_eq_procesador');
+        const inputProc = document.getElementById('eq_procesador');
+        const lblRam = document.getElementById('lbl_eq_ram');
+        const inputRam = document.getElementById('eq_ram');
+        const lblDisco = document.getElementById('lbl_eq_disco');
+        const inputDisco = document.getElementById('eq_disco');
         
         if (containerOtro) {
             if (tipo === '__otro__') {
@@ -1228,8 +1262,25 @@ if ($ver_historial_id > 0) {
         }
 
         if (grupoHardware) {
-            if (['Laptop', 'Desktop'].includes(tipo) || tipo === '__otro__') {
+            // Laptop, Desktop, Celular o tipo personalizado tienen especificaciones
+            if (['Laptop', 'Desktop', 'Celular'].includes(tipo) || tipo === '__otro__') {
                 grupoHardware.classList.remove('hidden');
+
+                if (tipo === 'Celular') {
+                    if (lblProc) lblProc.innerText = 'Chip / Procesador';
+                    if (inputProc) inputProc.placeholder = 'Ej: Snapdragon 8 Gen 2 / A16 Bionic';
+                    if (lblRam) lblRam.innerText = 'Memoria RAM';
+                    if (inputRam) inputRam.placeholder = 'Ej: 6GB / 8GB';
+                    if (lblDisco) lblDisco.innerText = 'Almacenamiento Interno';
+                    if (inputDisco) inputDisco.placeholder = 'Ej: 128GB / 256GB';
+                } else {
+                    if (lblProc) lblProc.innerText = 'Procesador';
+                    if (inputProc) inputProc.placeholder = 'Ej: i5 11va Gen';
+                    if (lblRam) lblRam.innerText = 'RAM';
+                    if (inputRam) inputRam.placeholder = 'Ej: 16GB DDR4';
+                    if (lblDisco) lblDisco.innerText = 'Disco';
+                    if (inputDisco) inputDisco.placeholder = 'Ej: 512GB SSD';
+                }
             } else {
                 grupoHardware.classList.add('hidden');
             }
