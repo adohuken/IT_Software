@@ -112,6 +112,48 @@ try {
     $equipos_con_ip = [];
 }
 
+// 7. Cargar Redes Wi-Fi por Sede
+try {
+    $stmt_wifi = $db->query("
+        SELECT rw.*, 
+               s.nombre AS sucursal_nombre, 
+               s.ubicacion AS sucursal_ubicacion,
+               e.nombre AS empresa_nombre
+        FROM redes_wifi rw
+        LEFT JOIN sucursales s ON rw.sucursal_id = s.id
+        LEFT JOIN empresas e ON s.empresa_id = e.id
+        ORDER BY e.nombre ASC, s.nombre ASC, rw.ssid ASC
+    ");
+    $redes_wifi_raw = $stmt_wifi->fetchAll(PDO::FETCH_ASSOC);
+    $redes_wifi = [];
+    $wifi_sedes_cubiertas = [];
+    $wifi_activas = 0;
+    $wifi_corporativas = 0;
+    $wifi_invitados = 0;
+    foreach ($redes_wifi_raw as $rw) {
+        $rw['pass_plain'] = !empty($rw['password_cifrado']) ? Security::decrypt($rw['password_cifrado']) : '';
+        $redes_wifi[] = $rw;
+        if (!empty($rw['sucursal_id'])) {
+            $wifi_sedes_cubiertas[$rw['sucursal_id']] = true;
+        }
+        if (($rw['estado'] ?? 'Activa') === 'Activa') {
+            $wifi_activas++;
+        }
+        if (strpos($rw['tipo_red'], 'Corporativa') !== false) {
+            $wifi_corporativas++;
+        } elseif (strpos($rw['tipo_red'], 'Invitados') !== false) {
+            $wifi_invitados++;
+        }
+    }
+    $total_wifi_sedes = count($wifi_sedes_cubiertas);
+} catch (Exception $e) {
+    $redes_wifi = [];
+    $total_wifi_sedes = 0;
+    $wifi_activas = 0;
+    $wifi_corporativas = 0;
+    $wifi_invitados = 0;
+}
+
 // Funciones de cálculo CIDR y emparejamiento IPv4
 if (!function_exists('calc_cidr_info')) {
     function calc_cidr_info($cidr) {
@@ -286,6 +328,10 @@ require_once __DIR__ . '/../../includes/header.php';
                 <button onclick="abrirModalSubred()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 transition flex items-center gap-2">
                     <i class="fa-solid fa-plus-circle"></i> + Nueva Subred IP
                 </button>
+            <?php elseif ($tab === 'wifi'): ?>
+                <button onclick="abrirModalWifi()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold text-xs shadow-lg shadow-indigo-500/20 transition flex items-center gap-2">
+                    <i class="fa-solid fa-plus-circle"></i> + Nueva Red Wi-Fi
+                </button>
             <?php endif; ?>
         </div>
     </div>
@@ -396,6 +442,11 @@ require_once __DIR__ . '/../../includes/header.php';
             <i class="fa-solid fa-sitemap"></i>
             <span>Matriz de Subredes & IPs</span>
             <span class="px-1.5 py-0.2 rounded-full text-[10px] font-black <?= $tab === 'matriz_ip' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600' ?>"><?= count($subredes_procesadas) ?></span>
+        </a>
+        <a href="?tab=wifi" class="px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 <?= $tab === 'wifi' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'bg-white/60 text-slate-600 hover:bg-white hover:text-slate-800 border border-slate-200/80' ?>">
+            <i class="fa-solid fa-wifi"></i>
+            <span>Redes Wi-Fi por Sede</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] font-black <?= $tab === 'wifi' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600' ?>"><?= count($redes_wifi) ?></span>
         </a>
         <a href="../internet/index.php" class="px-4 py-2.5 rounded-xl transition flex items-center gap-2 shrink-0 bg-white/60 text-slate-600 hover:bg-white hover:text-slate-800 border border-slate-200/80">
             <i class="fa-solid fa-globe text-cyan-600"></i>
@@ -1214,6 +1265,311 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </div>
     <?php endif; ?>
+
+    <!-- TAB 5: REDES WI-FI POR SEDE -->
+    <?php if ($tab === 'wifi'): ?>
+        <div class="bg-white/80 backdrop-blur-xl rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden p-6 space-y-5">
+            <!-- Barra de Búsqueda y Filtros de Wi-Fi -->
+            <div class="flex flex-col md:flex-row gap-3 justify-between items-center">
+                <div class="relative w-full md:w-80 flex items-center">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+                    <input type="text" id="busquedaWifi" 
+                           oninput="toggleClearBtn('busquedaWifi', 'btn_clear_wifi'); filtrarWifi();" 
+                           onkeydown="if(event.key === 'Escape'){ limpiarBuscador('busquedaWifi', 'btn_clear_wifi', filtrarWifi); }" 
+                           placeholder="Buscar SSID, contraseña, sede, VLAN..." 
+                           class="w-full pl-9 pr-9 py-2.5 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <button type="button" id="btn_clear_wifi" 
+                            onclick="limpiarBuscador('busquedaWifi', 'btn_clear_wifi', filtrarWifi)" 
+                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
+                            title="Limpiar búsqueda">
+                        <i class="fa-solid fa-circle-xmark text-sm"></i>
+                    </button>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    <!-- Filtro por Sede -->
+                    <select id="filtroSedeWifi" onchange="filtrarWifi()" class="px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="">-- Todas las Sedes --</option>
+                        <?php foreach ($sucursales as $s): ?>
+                            <option value="<?= htmlspecialchars($s['nombre']) ?>"><?= htmlspecialchars($s['empresa_nombre'] . ' - ' . $s['nombre']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+
+                    <!-- Filtro por Tipo de Red -->
+                    <select id="filtroTipoWifi" onchange="filtrarWifi()" class="px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="">-- Todos los Tipos --</option>
+                        <option value="Corporativa / Empleados">Corporativa / Empleados</option>
+                        <option value="Invitados / Clientes">Invitados / Clientes</option>
+                        <option value="Operativa / Almacén">Operativa / Almacén</option>
+                        <option value="Administración / Gerencia">Administración / Gerencia</option>
+                        <option value="Otra">Otra</option>
+                    </select>
+
+                    <button onclick="abrirModalWifi()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold text-xs shadow-md shadow-indigo-500/20 transition flex items-center gap-2">
+                        <i class="fa-solid fa-plus-circle"></i> + Nueva Red Wi-Fi
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filtros rápidos de Empresa (Chips) -->
+            <div id="filtrosEmpresaWifi" class="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+                <span class="text-[11px] font-bold text-slate-500 mr-1"><i class="fa-solid fa-filter text-slate-400 mr-1"></i> Empresa:</span>
+                <button type="button" onclick="filtrarEmpresaWifi('all', this)" class="filtro-wifi-empresa-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-900 text-white shadow-xs">
+                    Todas las Empresas
+                </button>
+                <button type="button" onclick="filtrarEmpresaWifi('SUMINISTROS INTEGRALES', this)" class="filtro-wifi-empresa-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 hover:bg-slate-200 text-slate-700">
+                    Suministros Integrales
+                </button>
+                <button type="button" onclick="filtrarEmpresaWifi('MASTERTEC', this)" class="filtro-wifi-empresa-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 hover:bg-slate-200 text-slate-700">
+                    Mastertec
+                </button>
+                <button type="button" onclick="filtrarEmpresaWifi('CENTRO DE PINTURA', this)" class="filtro-wifi-empresa-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 hover:bg-slate-200 text-slate-700">
+                    Centro de Pintura
+                </button>
+            </div>
+
+            <!-- Mini KPIs de Wi-Fi -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-100 flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                        <i class="fa-solid fa-wifi"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-indigo-700 font-bold">Total Redes Wi-Fi</p>
+                        <p class="text-lg font-black text-indigo-900"><?= count($redes_wifi) ?> <span class="text-[11px] font-normal text-indigo-600">configuradas</span></p>
+                    </div>
+                </div>
+
+                <div class="p-3.5 rounded-2xl bg-blue-50/70 border border-blue-100 flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                        <i class="fa-solid fa-briefcase"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-blue-700 font-bold">Corporativas / Personal</p>
+                        <p class="text-lg font-black text-blue-900"><?= $wifi_corporativas ?> <span class="text-[11px] font-normal text-blue-600">redes</span></p>
+                    </div>
+                </div>
+
+                <div class="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-100 flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                        <i class="fa-solid fa-users"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-emerald-700 font-bold">Invitados / Clientes</p>
+                        <p class="text-lg font-black text-emerald-900"><?= $wifi_invitados ?> <span class="text-[11px] font-normal text-emerald-600">redes</span></p>
+                    </div>
+                </div>
+
+                <div class="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-100 flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                        <i class="fa-solid fa-location-dot"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-purple-700 font-bold">Sedes Cubiertas</p>
+                        <p class="text-lg font-black text-purple-900"><?= $total_wifi_sedes ?> <span class="text-[11px] font-normal text-purple-600">de <?= count($sucursales) ?> sedes</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de Redes Wi-Fi Estilo Excel Corporativo Moderno -->
+            <?php if (empty($redes_wifi)): ?>
+                <div class="p-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    <div class="w-16 h-16 mx-auto rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center text-3xl mb-3 shadow-inner">
+                        <i class="fa-solid fa-wifi"></i>
+                    </div>
+                    <h3 class="text-base font-black text-slate-800">No hay redes Wi-Fi registradas todavía</h3>
+                    <p class="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+                        Registra las redes inalámbricas (SSID y Contraseñas) de cada una de tus sedes (Managua, León, Sébaco, Honduras, El Salvador, Dominicana, etc.) para tenerlas organizadas y seguras.
+                    </p>
+                    <button onclick="abrirModalWifi()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-500/20 transition inline-flex items-center gap-2">
+                        <i class="fa-solid fa-plus-circle"></i> + Registrar Primera Red Wi-Fi
+                    </button>
+                </div>
+            <?php else: ?>
+                <div class="overflow-x-auto rounded-2xl border border-slate-200/80 shadow-xs">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-gradient-to-r from-slate-900 to-slate-800 text-white uppercase text-[10px] tracking-wider font-bold">
+                                <th class="p-3.5"><i class="fa-solid fa-building mr-1.5 opacity-70"></i> Sede & Ubicación</th>
+                                <th class="p-3.5"><i class="fa-solid fa-wifi mr-1.5 opacity-70"></i> SSID (Red Wi-Fi)</th>
+                                <th class="p-3.5"><i class="fa-solid fa-key mr-1.5 opacity-70"></i> Contraseña (PASS)</th>
+                                <th class="p-3.5"><i class="fa-solid fa-layer-group mr-1.5 opacity-70"></i> Tipo & Frecuencia</th>
+                                <th class="p-3.5"><i class="fa-solid fa-shield-halved mr-1.5 opacity-70"></i> Seguridad / VLAN</th>
+                                <th class="p-3.5"><i class="fa-solid fa-circle-dot mr-1.5 opacity-70"></i> Estado</th>
+                                <th class="p-3.5 text-right"><i class="fa-solid fa-gear mr-1.5 opacity-70"></i> Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaWifiCuerpo" class="divide-y divide-slate-100 bg-white">
+                            <?php foreach ($redes_wifi as $rw): 
+                                $empresa_clean = strtoupper($rw['empresa_nombre'] ?? '');
+                                $bandera = '🇳🇮';
+                                if (stripos($rw['sucursal_nombre'], 'Honduras') !== false || stripos($rw['sucursal_ubicacion'] ?? '', 'Honduras') !== false) {
+                                    $bandera = '🇭🇳';
+                                } elseif (stripos($rw['sucursal_nombre'], 'Salvador') !== false || stripos($rw['sucursal_ubicacion'] ?? '', 'Salvador') !== false) {
+                                    $bandera = '🇸🇻';
+                                } elseif (stripos($rw['sucursal_nombre'], 'Dominicana') !== false || stripos($rw['sucursal_ubicacion'] ?? '', 'Dominicana') !== false) {
+                                    $bandera = '🇩🇴';
+                                }
+
+                                $color_tipo = 'bg-blue-50 text-blue-700 border-blue-200';
+                                if (strpos($rw['tipo_red'], 'Invitados') !== false) {
+                                    $color_tipo = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                } elseif (strpos($rw['tipo_red'], 'Operativa') !== false) {
+                                    $color_tipo = 'bg-amber-50 text-amber-700 border-amber-200';
+                                } elseif (strpos($rw['tipo_red'], 'Administración') !== false) {
+                                    $color_tipo = 'bg-purple-50 text-purple-700 border-purple-200';
+                                }
+
+                                $color_estado = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                if ($rw['estado'] === 'Inactiva') {
+                                    $color_estado = 'bg-slate-100 text-slate-600 border-slate-200';
+                                } elseif ($rw['estado'] === 'Oculta') {
+                                    $color_estado = 'bg-amber-50 text-amber-700 border-amber-200';
+                                } elseif ($rw['estado'] === 'Mantenimiento') {
+                                    $color_estado = 'bg-rose-50 text-rose-700 border-rose-200';
+                                }
+
+                                $search_data = strtolower(
+                                    ($rw['ssid'] ?? '') . ' ' . 
+                                    ($rw['pass_plain'] ?? '') . ' ' . 
+                                    ($rw['sucursal_nombre'] ?? '') . ' ' . 
+                                    ($rw['empresa_nombre'] ?? '') . ' ' . 
+                                    ($rw['tipo_red'] ?? '') . ' ' . 
+                                    ($rw['vlan_id'] ?? '') . ' ' . 
+                                    ($rw['ap_asociado'] ?? '')
+                                );
+                            ?>
+                            <tr class="fila-wifi hover:bg-slate-50/80 transition"
+                                data-search="<?= htmlspecialchars($search_data) ?>"
+                                data-empresa="<?= htmlspecialchars($rw['empresa_nombre'] ?? '') ?>"
+                                data-sede="<?= htmlspecialchars($rw['sucursal_nombre'] ?? '') ?>"
+                                data-tipo="<?= htmlspecialchars($rw['tipo_red'] ?? '') ?>">
+                                
+                                <!-- Sede & Empresa -->
+                                <td class="p-3.5">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-lg leading-none" title="País"><?= $bandera ?></span>
+                                        <div>
+                                            <span class="font-black text-slate-800 block text-xs"><?= htmlspecialchars($rw['sucursal_nombre'] ?? 'Sin Sede') ?></span>
+                                            <span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200 inline-block mt-0.5">
+                                                <?= htmlspecialchars($rw['empresa_nombre'] ?? 'N/A') ?>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <!-- SSID -->
+                                <td class="p-3.5">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center text-xs shrink-0">
+                                            <i class="fa-solid fa-wifi"></i>
+                                        </div>
+                                        <div>
+                                            <span class="font-black text-slate-800 text-xs tracking-tight block"><?= htmlspecialchars($rw['ssid']) ?></span>
+                                            <?php if (!empty($rw['ap_asociado'])): ?>
+                                                <span class="text-[10px] text-slate-400 font-medium block"><i class="fa-solid fa-tower-broadcast text-[9px] mr-1"></i><?= htmlspecialchars($rw['ap_asociado']) ?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <!-- Password (PASS) con Ojo y Copiar -->
+                                <td class="p-3.5 font-mono">
+                                    <div class="inline-flex items-center gap-1.5 bg-slate-100/90 border border-slate-200 px-2.5 py-1 rounded-xl shadow-2xs">
+                                        <span id="pass_masked_<?= $rw['id'] ?>" class="text-slate-600 font-bold select-all tracking-wider text-xs">••••••••••••</span>
+                                        <span id="pass_plain_<?= $rw['id'] ?>" class="text-indigo-900 font-bold select-all tracking-normal text-xs hidden"><?= htmlspecialchars($rw['pass_plain']) ?></span>
+                                        
+                                        <div class="flex items-center gap-1 border-l border-slate-200 pl-1.5 ml-1">
+                                            <!-- Ver / Ocultar Contraseña -->
+                                            <button type="button" 
+                                                    onclick="toggleWifiPass(<?= $rw['id'] ?>)" 
+                                                    id="btn_eye_<?= $rw['id'] ?>"
+                                                    class="text-slate-400 hover:text-slate-700 p-1 rounded-md transition" 
+                                                    title="Mostrar / Ocultar Contraseña">
+                                                <i class="fa-regular fa-eye text-xs"></i>
+                                            </button>
+                                            
+                                            <!-- Copiar Contraseña -->
+                                            <button type="button" 
+                                                    onclick="copiarPassWifi('<?= addslashes($rw['pass_plain']) ?>', this)" 
+                                                    class="text-slate-400 hover:text-indigo-600 p-1 rounded-md transition" 
+                                                    title="Copiar Contraseña">
+                                                <i class="fa-regular fa-copy text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <!-- Tipo & Frecuencia -->
+                                <td class="p-3.5">
+                                    <div class="space-y-1">
+                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold border <?= $color_tipo ?> inline-block">
+                                            <?= htmlspecialchars($rw['tipo_red']) ?>
+                                        </span>
+                                        <span class="text-[10px] text-slate-500 font-semibold flex items-center gap-1">
+                                            <i class="fa-solid fa-wave-square text-[9px] text-slate-400"></i> <?= htmlspecialchars($rw['frecuencia']) ?>
+                                        </span>
+                                    </div>
+                                </td>
+
+                                <!-- Seguridad / VLAN -->
+                                <td class="p-3.5">
+                                    <div class="space-y-1">
+                                        <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 inline-block">
+                                            <?= htmlspecialchars($rw['seguridad']) ?>
+                                        </span>
+                                        <?php if (!empty($rw['vlan_id'])): ?>
+                                            <span class="text-[10px] text-indigo-700 font-bold block">
+                                                <i class="fa-solid fa-network-wired text-[9px] mr-1"></i><?= htmlspecialchars($rw['vlan_id']) ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+
+                                <!-- Estado -->
+                                <td class="p-3.5">
+                                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border <?= $color_estado ?> inline-flex items-center gap-1.5">
+                                        <span class="w-1.5 h-1.5 rounded-full <?= $rw['estado'] === 'Activa' ? 'bg-emerald-500' : 'bg-slate-400' ?>"></span>
+                                        <?= htmlspecialchars($rw['estado']) ?>
+                                    </span>
+                                </td>
+
+                                <!-- Acciones -->
+                                <td class="p-3.5 text-right">
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        <!-- Generar QR para Conectar -->
+                                        <button type="button" 
+                                                onclick="mostrarQrWifi('<?= addslashes($rw['ssid']) ?>', '<?= addslashes($rw['pass_plain']) ?>', '<?= addslashes($rw['tipo_red']) ?>', '<?= addslashes($rw['seguridad']) ?>', '<?= addslashes($rw['sucursal_nombre']) ?>')" 
+                                                class="p-2 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 border border-slate-200 transition" 
+                                                title="Código QR para Conectar Celular">
+                                            <i class="fa-solid fa-qrcode text-xs"></i>
+                                        </button>
+
+                                        <!-- Editar -->
+                                        <button type="button" 
+                                                onclick='abrirModalWifi(<?= json_encode($rw, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)' 
+                                                class="p-2 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 border border-slate-200 transition" 
+                                                title="Editar Red Wi-Fi">
+                                            <i class="fa-solid fa-pen-to-square text-xs"></i>
+                                        </button>
+
+                                        <!-- Eliminar -->
+                                        <button type="button" 
+                                                onclick="eliminarWifi(<?= $rw['id'] ?>, '<?= addslashes($rw['ssid']) ?>')" 
+                                                class="p-2 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 transition" 
+                                                title="Eliminar Red Wi-Fi">
+                                            <i class="fa-solid fa-trash text-xs"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
 </div>
 
 <!-- MODAL 1: REGISTRAR / EDITAR DISPOSITIVO DE RED -->
@@ -1611,6 +1967,154 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
                 <button type="button" onclick="cerrarModalDetalleSubred()" class="px-5 py-2 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50">Cerrar</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL 6: REGISTRAR / EDITAR RED WI-FI -->
+<div id="modalWifi" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+            <h3 id="modalWifiTitulo" class="text-lg font-black text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-wifi text-indigo-600"></i> Registrar Red Wi-Fi
+            </h3>
+            <button onclick="cerrarModalWifi()" class="text-slate-400 hover:text-slate-700 text-lg p-1"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <form action="guardar.php?action=save_wifi" method="POST" class="space-y-4">
+            <input type="hidden" name="wifi_id" id="wifi_id">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Sede / Sucursal *</label>
+                    <select name="sucursal_id" id="wifi_sucursal" required class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="">-- Seleccionar Sede --</option>
+                        <?php foreach ($sucursales as $s): ?>
+                            <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['empresa_nombre'] . ' - ' . $s['nombre']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Nombre de la Red (SSID) *</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-wifi absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" name="ssid" id="wifi_ssid" required placeholder="Ej. MASTERTEC_CORP_5G o SI_INVITADOS" class="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Contraseña (PASS) *</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-key absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" name="password_wifi" id="wifi_pass" required placeholder="Contraseña de la red Wi-Fi" class="w-full pl-9 pr-20 py-2 rounded-xl border border-slate-200 text-xs font-mono font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500">
+                        <button type="button" onclick="generarPasswordWifi()" class="absolute right-2 top-1/2 -translate-y-1/2 text-indigo-600 hover:text-indigo-800 text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg transition" title="Generar contraseña segura aleatoria">
+                            <i class="fa-solid fa-dice mr-1"></i>Generar
+                        </button>
+                    </div>
+                    <p id="wifi_pass_hint" class="text-[10px] text-slate-400 mt-1 hidden">Al editar, déjalo en blanco si deseas conservar la contraseña cifrada actual.</p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Tipo de Red</label>
+                    <select name="tipo_red" id="wifi_tipo" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="Corporativa / Empleados">Corporativa / Empleados</option>
+                        <option value="Invitados / Clientes">Invitados / Clientes</option>
+                        <option value="Operativa / Almacén">Operativa / Almacén</option>
+                        <option value="Administración / Gerencia">Administración / Gerencia</option>
+                        <option value="Otra">Otra</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Frecuencia / Banda</label>
+                    <select name="frecuencia" id="wifi_frecuencia" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="Dual Band (2.4 / 5 GHz)">Dual Band (2.4 / 5 GHz)</option>
+                        <option value="5 GHz">5 GHz (Alta Velocidad)</option>
+                        <option value="2.4 GHz">2.4 GHz (Mayor Alcance)</option>
+                        <option value="Wi-Fi 6">Wi-Fi 6 (802.11ax)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Seguridad / Cifrado</label>
+                    <input type="text" name="seguridad" id="wifi_seguridad" value="WPA2-PSK" placeholder="Ej. WPA2-PSK, WPA3-Personal" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">VLAN Asociada (Opcional)</label>
+                    <input type="text" name="vlan_id" id="wifi_vlan" placeholder="Ej. VLAN 20 (Invitados)" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">AP / Router Asociado (Opcional)</label>
+                    <input type="text" name="ap_asociado" id="wifi_ap" placeholder="Ej. Ubiquiti AP-AC-LR Oficina" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Estado</label>
+                    <select name="estado" id="wifi_estado" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="Activa">Activa</option>
+                        <option value="Inactiva">Inactiva</option>
+                        <option value="Oculta">Oculta (Sin Broadcast SSID)</option>
+                        <option value="Mantenimiento">En Mantenimiento</option>
+                    </select>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Notas / Observaciones</label>
+                <textarea name="notas" id="wifi_notas" rows="2" placeholder="Observaciones adicionales, política de cambio de contraseña, alcance..." class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onclick="cerrarModalWifi()" class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50">Cancelar</button>
+                <button type="submit" class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-500/20">Guardar Red Wi-Fi</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL 7: TARJETA QR DE CONEXIÓN WI-FI -->
+<div id="modalQrWifi" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
+        <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+            <span class="text-xs font-bold text-indigo-600 uppercase tracking-wider flex items-center gap-1.5">
+                <i class="fa-solid fa-qrcode"></i> Conexión Rápida
+            </span>
+            <button onclick="cerrarModalQrWifi()" class="text-slate-400 hover:text-slate-700 text-base p-1"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100">
+            <span id="qrSede" class="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-indigo-700 border border-indigo-200 inline-block mb-1">Managua</span>
+            <h4 id="qrSsid" class="text-base font-black text-slate-800 tracking-tight">MASTERTEC_CORP</h4>
+            <p id="qrTipo" class="text-[11px] text-slate-500 mt-0.5 font-medium">Red Corporativa</p>
+        </div>
+
+        <!-- Imagen del Código QR -->
+        <div class="bg-white p-3 rounded-2xl border border-slate-200 inline-block shadow-sm">
+            <img id="qrImgWifi" src="" alt="Código QR Wi-Fi" class="w-48 h-48 mx-auto rounded-lg">
+        </div>
+
+        <!-- Clave en Texto para copiar -->
+        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-left">
+            <label class="block text-[10px] font-bold text-slate-400 uppercase">Contraseña:</label>
+            <div class="flex items-center justify-between mt-0.5">
+                <span id="qrPassTexto" class="font-mono font-black text-slate-800 text-xs select-all break-all">••••••••</span>
+                <button type="button" id="btnCopiarQrPass" class="text-indigo-600 hover:text-indigo-800 p-1 text-xs" title="Copiar contraseña">
+                    <i class="fa-regular fa-copy"></i>
+                </button>
+            </div>
+        </div>
+
+        <p class="text-[10px] text-slate-400">
+            Apunta la cámara de tu smartphone hacia el código QR para conectarte de forma automática sin escribir la clave.
+        </p>
+
+        <div class="flex justify-center gap-2 pt-2 border-t border-slate-100">
+            <button type="button" onclick="cerrarModalQrWifi()" class="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-md transition">
+                Cerrar
+            </button>
         </div>
     </div>
 </div>
@@ -2058,6 +2562,159 @@ function filtrarSubredes() {
             card.style.display = 'none';
         }
     });
+}
+
+// ==========================================
+// GESTIÓN DE REDES WI-FI
+// ==========================================
+function abrirModalWifi(data = null) {
+    const modal = document.getElementById('modalWifi');
+    const form = modal.querySelector('form');
+    const titulo = document.getElementById('modalWifiTitulo');
+    const passHint = document.getElementById('wifi_pass_hint');
+    const passInput = document.getElementById('wifi_pass');
+
+    if (data) {
+        titulo.innerHTML = '<i class="fa-solid fa-pen-to-square text-indigo-600"></i> Editar Red Wi-Fi';
+        document.getElementById('wifi_id').value = data.id || '';
+        document.getElementById('wifi_sucursal').value = data.sucursal_id || '';
+        document.getElementById('wifi_ssid').value = data.ssid || '';
+        document.getElementById('wifi_pass').value = '';
+        passInput.removeAttribute('required');
+        passHint.classList.remove('hidden');
+        document.getElementById('wifi_tipo').value = data.tipo_red || 'Corporativa / Empleados';
+        document.getElementById('wifi_frecuencia').value = data.frecuencia || 'Dual Band (2.4 / 5 GHz)';
+        document.getElementById('wifi_seguridad').value = data.seguridad || 'WPA2-PSK';
+        document.getElementById('wifi_vlan').value = data.vlan_id || '';
+        document.getElementById('wifi_ap').value = data.ap_asociado || '';
+        document.getElementById('wifi_estado').value = data.estado || 'Activa';
+        document.getElementById('wifi_notas').value = data.notas || '';
+    } else {
+        titulo.innerHTML = '<i class="fa-solid fa-wifi text-indigo-600"></i> Registrar Red Wi-Fi';
+        form.reset();
+        document.getElementById('wifi_id').value = '';
+        passInput.setAttribute('required', 'required');
+        passHint.classList.add('hidden');
+        document.getElementById('wifi_seguridad').value = 'WPA2-PSK';
+        document.getElementById('wifi_frecuencia').value = 'Dual Band (2.4 / 5 GHz)';
+        document.getElementById('wifi_tipo').value = 'Corporativa / Empleados';
+        document.getElementById('wifi_estado').value = 'Activa';
+    }
+    modal.classList.remove('hidden');
+}
+
+function cerrarModalWifi() {
+    document.getElementById('modalWifi').classList.add('hidden');
+}
+
+function toggleWifiPass(id) {
+    const masked = document.getElementById('pass_masked_' + id);
+    const plain = document.getElementById('pass_plain_' + id);
+    const btn = document.getElementById('btn_eye_' + id);
+    if (!masked || !plain || !btn) return;
+
+    if (plain.classList.contains('hidden')) {
+        plain.classList.remove('hidden');
+        masked.classList.add('hidden');
+        btn.innerHTML = '<i class="fa-regular fa-eye-slash text-xs text-indigo-600"></i>';
+    } else {
+        plain.classList.add('hidden');
+        masked.classList.remove('hidden');
+        btn.innerHTML = '<i class="fa-regular fa-eye text-xs"></i>';
+    }
+}
+
+function copiarPassWifi(pass, btn) {
+    if (!pass) return;
+    navigator.clipboard.writeText(pass).then(() => {
+        const originalIcon = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-check text-xs text-emerald-600"></i>';
+        setTimeout(() => {
+            btn.innerHTML = originalIcon;
+        }, 1500);
+    });
+}
+
+function generarPasswordWifi() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
+    let res = '';
+    for (let i = 0; i < 12; i++) {
+        res += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    document.getElementById('wifi_pass').value = res;
+}
+
+function mostrarQrWifi(ssid, pass, tipo, seguridad, sede) {
+    document.getElementById('qrSsid').innerText = ssid;
+    document.getElementById('qrTipo').innerText = tipo;
+    document.getElementById('qrSede').innerText = sede;
+    document.getElementById('qrPassTexto').innerText = pass;
+    
+    // Generar formato estandar WIFI:S:ssid;T:WPA;P:password;;
+    const qrData = `WIFI:S:${encodeURIComponent(ssid)};T:WPA;P:${encodeURIComponent(pass)};;`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrData)}`;
+    
+    document.getElementById('qrImgWifi').src = qrUrl;
+    
+    const btnCopiar = document.getElementById('btnCopiarQrPass');
+    if (btnCopiar) {
+        btnCopiar.onclick = function() {
+            copiarPassWifi(pass, this);
+        };
+    }
+    
+    document.getElementById('modalQrWifi').classList.remove('hidden');
+}
+
+function cerrarModalQrWifi() {
+    document.getElementById('modalQrWifi').classList.add('hidden');
+}
+
+let filtroWifiEmpresaActivo = 'all';
+
+function filtrarEmpresaWifi(empresa, btn) {
+    filtroWifiEmpresaActivo = empresa;
+    document.querySelectorAll('#filtrosEmpresaWifi .filtro-wifi-empresa-btn').forEach(b => {
+        b.className = 'filtro-wifi-empresa-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-100 hover:bg-slate-200 text-slate-700';
+    });
+    if (btn) {
+        btn.className = 'filtro-wifi-empresa-btn px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-900 text-white shadow-xs';
+    }
+    filtrarWifi();
+}
+
+function filtrarWifi() {
+    const q = (document.getElementById('busquedaWifi') ? document.getElementById('busquedaWifi').value.toLowerCase().trim() : '');
+    const sede = (document.getElementById('filtroSedeWifi') ? document.getElementById('filtroSedeWifi').value.toLowerCase().trim() : '');
+    const tipo = (document.getElementById('filtroTipoWifi') ? document.getElementById('filtroTipoWifi').value.toLowerCase().trim() : '');
+
+    const filas = document.querySelectorAll('.fila-wifi');
+    filas.forEach(fila => {
+        const search = fila.getAttribute('data-search') || '';
+        const fEmpresa = (fila.getAttribute('data-empresa') || '').toUpperCase();
+        const fSede = (fila.getAttribute('data-sede') || '').toLowerCase();
+        const fTipo = (fila.getAttribute('data-tipo') || '').toLowerCase();
+
+        const matchQ = !q || search.includes(q);
+        const matchSede = !sede || fSede.includes(sede);
+        const matchTipo = !tipo || fTipo === tipo;
+        let matchEmpresa = true;
+        if (filtroWifiEmpresaActivo !== 'all') {
+            matchEmpresa = fEmpresa.includes(filtroWifiEmpresaActivo.toUpperCase());
+        }
+
+        if (matchQ && matchSede && matchTipo && matchEmpresa) {
+            fila.style.display = '';
+        } else {
+            fila.style.display = 'none';
+        }
+    });
+}
+
+function eliminarWifi(id, ssid) {
+    if (confirm(`¿Estás seguro de que deseas eliminar la red Wi-Fi "${ssid}"? Esta acción no se puede deshacer.`)) {
+        window.location.href = `guardar.php?action=delete_wifi&id=${id}`;
+    }
 }
 </script>
 

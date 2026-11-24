@@ -246,6 +246,24 @@ try {
                 $db->prepare("UPDATE equipos SET estado = 'Asignado' WHERE id = ?")->execute([$nuevo_equipo_id]);
             }
 
+            // D. Manejo de la cuenta Microsoft 365
+            $desasignar_m365 = !empty($_POST['desasignar_m365']);
+            $m365_id_raw = $_POST['m365_id'] ?? '';
+
+            if ($desasignar_m365) {
+                // Desvincular cualquier cuenta M365 activa de este colaborador
+                $db->prepare("UPDATE cuentas_m365 SET empleado_id = NULL WHERE empleado_id = ?")->execute([$id]);
+            } elseif (!empty($m365_id_raw)) {
+                $target_m365_id = (int)$m365_id_raw;
+                if ($target_m365_id > 0) {
+                    // Desvincular cualquier otra que tuviese este colaborador
+                    $db->prepare("UPDATE cuentas_m365 SET empleado_id = NULL WHERE empleado_id = ? AND id != ?")->execute([$id, $target_m365_id]);
+                    // Asignar esta cuenta disponible al colaborador
+                    $db->prepare("UPDATE cuentas_m365 SET empleado_id = ? WHERE id = ?")
+                       ->execute([$id, $target_m365_id]);
+                }
+            }
+
             $db->commit();
 
             $_SESSION['flash_success'] = "Información del colaborador y sus recursos vinculados actualizada correctamente.";

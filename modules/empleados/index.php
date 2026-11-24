@@ -99,8 +99,14 @@ $sql_empleados = "
             FROM asignaciones a 
             JOIN equipos eq ON a.equipo_id = eq.id 
             WHERE a.empleado_id = emp.id AND a.fecha_devolucion IS NULL) AS equipo_vinculado,
+           (SELECT id FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS m365_id,
            (SELECT correo FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS correo_m365,
            (SELECT licencia_tipo FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS licencia_m365,
+           (SELECT password_cifrado FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS m365_pass_cifrado,
+           (SELECT fecha_inicializacion FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS m365_fecha_init,
+           (SELECT ciclo_facturacion FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS m365_ciclo,
+           (SELECT fecha_proximo_pago FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS m365_proximo_pago,
+           (SELECT estado FROM cuentas_m365 WHERE empleado_id = emp.id AND estado = 'Activa' LIMIT 1) AS m365_estado,
            (SELECT password_cifrado FROM credenciales_personales WHERE empleado_id = emp.id AND tipo = 'PC PIN' LIMIT 1) AS pc_pin_cifrado,
            (SELECT password_cifrado FROM credenciales_personales WHERE empleado_id = emp.id AND tipo = 'Pass AG' LIMIT 1) AS pass_ag_cifrado,
            (SELECT usuario FROM credenciales_personales WHERE empleado_id = emp.id AND tipo = 'Gmail' LIMIT 1) AS correo_gmail,
@@ -113,10 +119,29 @@ $sql_empleados = "
 ";
 $empleados = $db->query($sql_empleados)->fetchAll();
 
+// Cargar todos los equipos asignados con sus especificaciones de hardware
+$equipos_asignados_db = $db->query("
+    SELECT a.empleado_id, eq.id, eq.tipo, eq.marca, eq.modelo, eq.service_tag_sn, eq.procesador, eq.ram, eq.disco, eq.ip_direccion,
+           ce.usuario_local, ce.password_cifrado AS eq_pass_cifrado, ce.clave_bitlocker, ce.notas_acceso
+    FROM asignaciones a
+    JOIN equipos eq ON a.equipo_id = eq.id
+    LEFT JOIN credenciales_equipos ce ON ce.equipo_id = eq.id
+    WHERE a.fecha_devolucion IS NULL
+")->fetchAll();
+
+$equipos_por_empleado = [];
+foreach ($equipos_asignados_db as $eqItem) {
+    $eqItem['eq_pass_plain'] = !empty($eqItem['eq_pass_cifrado']) ? Security::decrypt($eqItem['eq_pass_cifrado']) : '';
+    $eqItem['eq_bitlocker_plain'] = !empty($eqItem['clave_bitlocker']) ? Security::decrypt($eqItem['clave_bitlocker']) : '';
+    $equipos_por_empleado[$eqItem['empleado_id']][] = $eqItem;
+}
+
 foreach ($empleados as &$eRow) {
     $eRow['pc_pin'] = !empty($eRow['pc_pin_cifrado']) ? Security::decrypt($eRow['pc_pin_cifrado']) : '';
     $eRow['pass_gmail_plain'] = !empty($eRow['password_gmail_cifrado']) ? Security::decrypt($eRow['password_gmail_cifrado']) : '';
     $eRow['pass_ag_plain'] = !empty($eRow['pass_ag_cifrado']) ? Security::decrypt($eRow['pass_ag_cifrado']) : '';
+    $eRow['m365_pass_plain'] = !empty($eRow['m365_pass_cifrado']) ? Security::decrypt($eRow['m365_pass_cifrado']) : '';
+    $eRow['equipos_lista'] = $equipos_por_empleado[$eRow['id']] ?? [];
 }
 unset($eRow);
 
@@ -130,6 +155,7 @@ $sucursales_raw = $db->query("
 ")->fetchAll();
 $sucursales = $sucursales_raw;
 $equipos_disponibles = $db->query("SELECT id, tipo, marca, modelo, service_tag_sn FROM equipos WHERE estado = 'Disponible' ORDER BY tipo, marca")->fetchAll();
+$m365_disponibles = $db->query("SELECT id, correo, licencia_tipo FROM cuentas_m365 WHERE estado = 'Activa' AND (empleado_id IS NULL OR empleado_id = 0) ORDER BY correo")->fetchAll();
 $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE departamento IS NOT NULL AND departamento != '' ORDER BY departamento")->fetchAll(PDO::FETCH_COLUMN);
 ?>
 
@@ -137,23 +163,23 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
     <!-- Encabezado de Página -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Colaboradores & Onboarding IT</h2>
-            <p class="text-slate-500 text-sm">Control de personal, asignación de recursos y flujos de Onboarding IT.</p>
+            <h2 class="text-xl font-bold text-slate-900 tracking-tight">Colaboradores & Onboarding IT</h2>
+            <p class="text-slate-500 text-xs">Directorio de personal, vinculación de hardware y cuentas corporativas.</p>
         </div>
         <div>
-            <button onclick="abrirModal('modal-onboarding')" class="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm tracking-wide shadow-lg shadow-emerald-500/10 flex items-center gap-2 transition">
-                <i class="fa-solid fa-user-plus"></i> Iniciar Onboarding IT
+            <button onclick="abrirModal('modal-onboarding')" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition duration-150">
+                <i class="fa-solid fa-user-plus text-xs"></i> Iniciar Onboarding IT
             </button>
         </div>
     </div>
 
     <!-- PANEL DE FILTROS ROBUSTO DE NIVELES ORGANIZACIONALES -->
-    <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+    <div class="bg-white p-5 rounded-2xl shadow-xs border border-slate-200/80 space-y-4">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100">
             <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                <i class="fa-solid fa-filter text-emerald-500 text-sm"></i> Filtros por Empresa, Sucursal y Área
+                <i class="fa-solid fa-filter text-blue-600 text-xs"></i> Filtros por Empresa, Sucursal y Área
             </h3>
-            <button onclick="limpiarFiltros()" class="text-xs text-rose-500 hover:text-rose-700 font-bold flex items-center gap-1 transition">
+            <button onclick="limpiarFiltros()" class="text-xs text-rose-500 hover:text-rose-700 font-semibold flex items-center gap-1 transition">
                 <i class="fa-solid fa-arrow-rotate-left"></i> Limpiar Filtros
             </button>
         </div>
@@ -168,7 +194,7 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
                            oninput="toggleClearBtn('filterText', 'btn_clear_empleado'); aplicarFiltros();" 
                            onkeydown="if(event.key === 'Escape'){ limpiarBuscador('filterText', 'btn_clear_empleado', aplicarFiltros); }" 
                            placeholder="Nombre, serial..." 
-                           class="w-full pl-8 pr-9 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 font-medium focus:outline-none focus:border-emerald-500 focus:bg-white transition">
+                           class="w-full pl-8 pr-9 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition">
                     <button type="button" id="btn_clear_empleado" 
                             onclick="limpiarBuscador('filterText', 'btn_clear_empleado', aplicarFiltros)" 
                             class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
@@ -181,7 +207,7 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
             <!-- 2. Filtro por Empresa -->
             <div>
                 <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Empresa</label>
-                <select id="filterEmpresa" onchange="aplicarFiltros()" class="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500 transition">
+                <select id="filterEmpresa" onchange="aplicarFiltros()" class="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition">
                     <option value="">-- Todas las Empresas --</option>
                     <?php foreach ($empresas as $emp_c): ?>
                         <option value="<?= htmlspecialchars($emp_c['nombre']) ?>"><?= htmlspecialchars($emp_c['nombre']) ?></option>
@@ -192,7 +218,7 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
             <!-- 3. Filtro por Sucursal (Agrupado en Optgroup sin duplicados) -->
             <div>
                 <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Sucursal / Sede</label>
-                <select id="filterSucursal" onchange="aplicarFiltros()" class="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500 transition">
+                <select id="filterSucursal" onchange="aplicarFiltros()" class="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition">
                     <option value="">-- Todas las Sucursales --</option>
                     <?php 
                     $curr_emp = '';
@@ -215,7 +241,7 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
             <!-- 4. Filtro por Departamento -->
             <div>
                 <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Área / Departamento</label>
-                <select id="filterDepto" onchange="aplicarFiltros()" class="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500 transition">
+                <select id="filterDepto" onchange="aplicarFiltros()" class="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition">
                     <option value="">-- Todos los Departamentos --</option>
                     <?php foreach ($list_deptos as $dep): ?>
                         <option value="<?= htmlspecialchars($dep) ?>"><?= htmlspecialchars($dep) ?></option>
@@ -226,7 +252,7 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
             <!-- 5. Filtro por Estado de Recursos -->
             <div>
                 <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Recursos Vinculados</label>
-                <select id="filterRecursos" onchange="aplicarFiltros()" class="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-emerald-500 transition">
+                <select id="filterRecursos" onchange="aplicarFiltros()" class="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-blue-500 transition">
                     <option value="">-- Todos los Recursos --</option>
                     <option value="con_equipo">Con Equipo Asignado</option>
                     <option value="sin_equipo">Sin Equipo Asignado</option>
@@ -238,94 +264,94 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
 
         <!-- Indicador Contador -->
         <div class="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
-            <span>Mostrando <strong id="countVisibles" class="text-emerald-600 font-bold"><?= count($empleados) ?></strong> de <strong class="text-slate-800"><?= count($empleados) ?></strong> colaboradores</span>
+            <span>Mostrando <strong id="countVisibles" class="text-blue-600 font-bold"><?= count($empleados) ?></strong> de <strong class="text-slate-800"><?= count($empleados) ?></strong> colaboradores</span>
         </div>
     </div>
 
     <!-- Tabla General de Personal y Recursos -->
-    <div class="glass-panel rounded-2xl overflow-hidden">
+    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div class="overflow-x-auto">
-            <table class="w-full text-left modern-table text-sm" id="tablaEmpleados">
+            <table class="w-full text-left modern-table text-xs" id="tablaEmpleados">
                 <thead>
                     <tr>
-                        <th class="py-3 px-4">Colaborador</th>
-                        <th class="py-3 px-4">Cargo / Departamento</th>
-                        <th class="py-3 px-4">Sucursal</th>
-                        <th class="py-3 px-4">Equipo Vinculado</th>
-                        <th class="py-3 px-4">Cuenta M365 Activa</th>
-                        <th class="py-3 px-4 text-center">Acciones</th>
+                        <th class="py-3 px-4 font-semibold text-slate-600">Colaborador</th>
+                        <th class="py-3 px-4 font-semibold text-slate-600">Cargo / Área</th>
+                        <th class="py-3 px-4 font-semibold text-slate-600">Sucursal</th>
+                        <th class="py-3 px-4 font-semibold text-slate-600">Equipo Vinculado</th>
+                        <th class="py-3 px-4 font-semibold text-slate-600">Cuenta M365 Activa</th>
+                        <th class="py-3 px-4 text-center font-semibold text-slate-600">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($empleados)): ?>
                         <tr>
                             <td colspan="6" class="text-center py-10 text-slate-400">
-                                No se encontraron empleados registrados en el sistema.
+                                No se encontraron colaboradores registrados en el sistema.
                             </td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($empleados as $emp): ?>
-                            <tr class="hover:bg-emerald-50/60 cursor-pointer transition border-b border-slate-100 group" 
+                            <tr class="hover:bg-blue-50/30 cursor-pointer transition border-b border-slate-100 group" 
                                 data-search="<?= htmlspecialchars(strtolower($emp['nombre'] . ' ' . ($emp['cargo'] ?? '') . ' ' . ($emp['departamento'] ?? '') . ' ' . $emp['empresa_nombre'] . ' ' . $emp['sucursal_nombre'] . ' ' . ($emp['equipo_vinculado'] ?? '') . ' ' . ($emp['correo_m365'] ?? ''))) ?>"
                                 data-empresa="<?= htmlspecialchars(strtolower($emp['empresa_nombre'])) ?>"
                                 data-sucursal="<?= htmlspecialchars(strtolower($emp['sucursal_nombre'])) ?>"
                                 data-depto="<?= htmlspecialchars(strtolower($emp['departamento'] ?? '')) ?>"
                                 data-equipos="<?= (int)$emp['cant_equipos'] ?>"
                                 data-m365="<?= !empty($emp['correo_m365']) ? 'true' : 'false' ?>"
-                                onclick='verDetalleEmpleado(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
-                                <td class="py-4 px-4 font-bold text-slate-800 group-hover:text-emerald-700 transition flex items-center gap-2">
-                                    <div class="h-8 w-8 rounded-full bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-700 text-xs font-bold shrink-0">
+                                onclick='verFicha360(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
+                                <td class="py-3.5 px-4 font-semibold text-slate-800 group-hover:text-blue-600 transition flex items-center gap-2.5">
+                                    <div class="h-8 w-8 rounded-lg bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
                                         <?= strtoupper(substr($emp['nombre'], 0, 1)) ?>
                                     </div>
-                                    <?= htmlspecialchars($emp['nombre']) ?>
+                                    <span class="truncate"><?= htmlspecialchars($emp['nombre']) ?></span>
                                 </td>
-                                <td class="py-4 px-4 text-xs text-slate-600">
-                                    <div class="font-semibold text-slate-700"><?= htmlspecialchars($emp['cargo']) ?></div>
-                                    <span class="text-[10px] text-slate-400 font-medium"><?= htmlspecialchars($emp['departamento']) ?></span>
+                                <td class="py-3.5 px-4 text-xs text-slate-600">
+                                    <div class="font-semibold text-slate-800"><?= htmlspecialchars($emp['cargo']) ?></div>
+                                    <span class="text-[11px] text-slate-400"><?= htmlspecialchars($emp['departamento']) ?></span>
                                 </td>
-                                <td class="py-4 px-4 text-xs font-medium text-slate-600">
+                                <td class="py-3.5 px-4 text-xs font-medium text-slate-600">
                                     <?= htmlspecialchars($emp['sucursal_nombre']) ?>
                                 </td>
-                                <td class="py-4 px-4 text-xs">
+                                <td class="py-3.5 px-4 text-xs">
                                      <?php if ($emp['cant_equipos'] > 0): ?>
-                                         <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-50 border border-cyan-200 text-cyan-700 font-bold text-xs" title="<?= htmlspecialchars($emp['equipo_vinculado']) ?>">
-                                             <i class="fa-solid fa-laptop text-cyan-600 text-xs shrink-0"></i>
+                                         <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 border border-blue-200/80 text-blue-700 font-semibold text-[11px]" title="<?= htmlspecialchars($emp['equipo_vinculado']) ?>">
+                                             <i class="fa-solid fa-laptop text-blue-600 text-[10px] shrink-0"></i>
                                              <span><?= $emp['cant_equipos'] ?> <?= $emp['cant_equipos'] == 1 ? 'Equipo' : 'Equipos' ?></span>
                                          </div>
                                      <?php else: ?>
-                                         <a href="../equipos/index.php" onclick="event.stopPropagation();" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 font-medium text-xs">
-                                             <i class="fa-solid fa-link-slash text-slate-400 text-xs shrink-0"></i>
+                                         <a href="../equipos/index.php" onclick="event.stopPropagation();" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-50 border border-slate-200 text-slate-400 hover:text-slate-600 text-[11px]">
+                                             <i class="fa-solid fa-link-slash text-[10px] shrink-0"></i>
                                              <span>Sin equipos</span>
                                          </a>
                                      <?php endif; ?>
                                 </td>
-                                <td class="py-4 px-4 text-xs">
+                                <td class="py-3.5 px-4 text-xs">
                                     <?php if (!empty($emp['correo_m365'])): ?>
                                         <div class="text-slate-700">
-                                            <div class="font-bold text-slate-800 flex items-center gap-1.5">
-                                                <i class="fa-solid fa-cloud text-emerald-500"></i>
-                                                <?= htmlspecialchars($emp['correo_m365']) ?>
+                                            <div class="font-semibold text-slate-800 flex items-center gap-1.5 truncate">
+                                                <i class="fa-solid fa-cloud text-sky-600 text-xs"></i>
+                                                <span class="truncate"><?= htmlspecialchars($emp['correo_m365']) ?></span>
                                             </div>
-                                            <span class="text-[10px] text-slate-400 font-medium"><?= htmlspecialchars($emp['licencia_m365']) ?></span>
+                                            <span class="text-[10px] text-slate-400"><?= htmlspecialchars($emp['licencia_m365']) ?></span>
                                         </div>
                                     <?php else: ?>
-                                        <a href="../credenciales/index.php?tab=m365" onclick="event.stopPropagation();" class="text-slate-400 hover:text-emerald-600 flex items-center gap-1">
-                                            <i class="fa-solid fa-link-slash"></i> Sin cuenta asociada
+                                        <a href="../credenciales/index.php?tab=m365" onclick="event.stopPropagation();" class="text-slate-400 hover:text-blue-600 flex items-center gap-1 text-[11px]">
+                                            <i class="fa-solid fa-link-slash text-[10px]"></i> Sin M365
                                         </a>
                                     <?php endif; ?>
                                 </td>
-                                <td class="py-4 px-4 text-center">
+                                <td class="py-3.5 px-4 text-center">
                                     <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
-                                        <!-- Ver Ficha de Credenciales (URL) -->
-                                        <a href="?details_id=<?= $emp['id'] ?>" onclick="event.stopPropagation();" class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-emerald-600 transition" title="Ficha de Credenciales Cifradas">
-                                            <i class="fa-solid fa-key text-xs"></i>
-                                        </a>
+                                        <!-- Ver Ficha 360° Integral -->
+                                        <button type="button" onclick='event.stopPropagation(); verFicha360(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="h-8 w-8 rounded-lg hover:bg-blue-50 flex items-center justify-center text-slate-400 hover:text-blue-600 transition" title="Ficha 360° Integral">
+                                            <i class="fa-solid fa-id-card text-xs"></i>
+                                        </button>
                                         <!-- Editar Empleado -->
-                                        <button onclick='event.stopPropagation(); abrirEditarEmpleado(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="h-8 w-8 rounded-lg hover:bg-cyan-50 flex items-center justify-center text-slate-500 hover:text-cyan-600 transition" title="Editar Empleado">
+                                        <button onclick='event.stopPropagation(); abrirEditarEmpleado(<?= json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition" title="Editar Empleado">
                                             <i class="fa-solid fa-pen text-xs"></i>
                                         </button>
                                         <!-- Dar de Baja -->
-                                        <button onclick="event.stopPropagation(); confirmarBajaEmpleado('guardar.php?action=baja&id=<?= $emp['id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition" title="Dar de Baja Colaborador">
+                                        <button onclick="event.stopPropagation(); confirmarBajaEmpleado('guardar.php?action=baja&id=<?= $emp['id'] ?>')" class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition" title="Dar de Baja Colaborador">
                                             <i class="fa-solid fa-user-minus text-xs"></i>
                                         </button>
                                     </div>
@@ -624,183 +650,16 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
 </script>
 
 <?php if ($ficha_empleado): ?>
-<!-- Modal de Ficha de Credenciales del Colaborador -->
-<div id="modal-ficha-detalles" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-    <div class="bg-white border border-emerald-500/20 rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl animate-fade-in my-8">
-        
-        <div class="p-6 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="font-bold text-slate-800 flex items-center gap-2">
-                <i class="fa-solid fa-id-card text-emerald-400"></i> Ficha de Credenciales IT
-            </h3>
-            <a href="index.php" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></a>
-        </div>
-
-        <div class="p-6 space-y-6">
-            <!-- Información General -->
-            <div class="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-slate-200">
-                <div class="h-12 w-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-lg">
-                    <?= strtoupper(substr($ficha_empleado['nombre'], 0, 2)) ?>
-                </div>
-                <div>
-                    <h4 class="font-bold text-slate-800"><?= htmlspecialchars($ficha_empleado['nombre']) ?></h4>
-                    <p class="text-xs text-slate-500"><?= htmlspecialchars($ficha_empleado['cargo'] ?? '') ?> &bull; <?= htmlspecialchars($ficha_empleado['departamento'] ?? '') ?></p>
-                    <p class="text-[10px] text-slate-400 mt-0.5">Sucursal: <?= htmlspecialchars($ficha_empleado['sucursal_nombre']) ?></p>
-                </div>
-            </div>
-
-            <!-- Hardware Asignado -->
-            <div class="space-y-3">
-                <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                    <i class="fa-solid fa-laptop text-cyan-400"></i> Hardware Vinculado
-                </h5>
-                <?php if (!empty($ficha_equipos)): ?>
-                    <?php foreach ($ficha_equipos as $ficha_equipo): 
-                        $password_clear = '';
-                        $bitlocker_clear = 'N/A';
-                        if (!empty($ficha_equipo['usuario_local'])) {
-                            try {
-                                $password_clear = !empty($ficha_equipo['eq_password']) ? Security::decrypt($ficha_equipo['eq_password']) : '';
-                            } catch (Exception $e) {
-                                $password_clear = '[Error al descifrar]';
-                            }
-                            try {
-                                $bitlocker_clear = !empty($ficha_equipo['clave_bitlocker']) ? Security::decrypt($ficha_equipo['clave_bitlocker']) : 'N/A';
-                            } catch (Exception $e) {
-                                $bitlocker_clear = '[Error al descifrar]';
-                            }
-                        }
-                    ?>
-                        <div class="bg-slate-100 border border-slate-200 rounded-2xl p-4 space-y-3 mb-3 last:mb-0">
-                            <div class="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
-                                <span class="font-bold text-slate-800"><?= htmlspecialchars($ficha_equipo['tipo'] . ' ' . $ficha_equipo['marca'] . ' ' . $ficha_equipo['modelo']) ?></span>
-                                <span class="text-slate-400 font-mono">S/N: <?= htmlspecialchars($ficha_equipo['service_tag_sn']) ?></span>
-                            </div>
-                            <div class="grid grid-cols-2 gap-3 text-xs">
-                                <div>
-                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Acceso a Windows</span>
-                                    <div class="text-indigo-700 font-bold bg-indigo-50/70 p-2.5 rounded-lg mt-1 border border-indigo-200 flex items-center gap-1.5">
-                                        <i class="fa-brands fa-windows text-blue-500"></i> Azure AD / Windows
-                                    </div>
-                                </div>
-                                <div>
-                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">PIN de Seguridad PC</span>
-                                    <div class="text-slate-800 font-mono font-bold bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all">
-                                        <?= !empty($ficha_pc_pin) ? htmlspecialchars($ficha_pc_pin) : '<span class="text-slate-400 italic font-normal">No registrado</span>' ?>
-                                    </div>
-                                </div>
-                            </div>
-                            <?php if (!empty($ficha_equipo['usuario_local'])): ?>
-                                <div class="grid grid-cols-2 gap-3 text-xs pt-1">
-                                    <div>
-                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Usuario Local Admin</span>
-                                        <div class="text-slate-600 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200"><?= htmlspecialchars($ficha_equipo['usuario_local']) ?></div>
-                                    </div>
-                                    <div>
-                                        <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Contraseña Local Admin</span>
-                                        <div class="text-cyan-600 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all"><?= htmlspecialchars($password_clear) ?></div>
-                                    </div>
-                                </div>
-                            <?php endif; ?>
-                            <?php if (!empty($ficha_equipo['clave_bitlocker'])): ?>
-                                <div class="text-xs pt-1">
-                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Clave BitLocker de Recuperación</span>
-                                    <div class="text-amber-500 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all whitespace-pre-wrap break-all text-[11px]"><?= htmlspecialchars($bitlocker_clear) ?></div>
-                                </div>
-                            <?php endif; ?>
-                            <?php if (!empty($ficha_equipo['notes_acceso']) || !empty($ficha_equipo['notas_acceso'])): ?>
-                                <div class="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                                    <strong class="text-slate-800">Notas de acceso:</strong> <?= htmlspecialchars($ficha_equipo['notas_acceso'] ?? $ficha_equipo['notes_acceso']) ?>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <div class="text-xs text-slate-400 italic bg-slate-100 border border-slate-200 rounded-2xl p-4">
-                        Ningún hardware de inventario está asignado actualmente a este colaborador.
-                    </div>
-                <?php endif; ?>
-            </div>
-
-            <!-- Cuenta Microsoft 365 -->
-            <div class="space-y-3">
-                <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                    <i class="fa-solid fa-cloud text-emerald-400"></i> Licencia Microsoft 365
-                </h5>
-                <?php if ($ficha_m365): ?>
-                    <div class="bg-slate-100 border border-slate-200 rounded-2xl p-4 space-y-3">
-                        <div class="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
-                            <span class="font-bold text-slate-800 flex items-center gap-1.5">
-                                <i class="fa-solid fa-envelope text-slate-500"></i> <?= htmlspecialchars($ficha_m365['correo']) ?>
-                            </span>
-                            <span class="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded text-[10px] font-bold"><?= htmlspecialchars($ficha_m365['licencia_tipo']) ?></span>
-                        </div>
-                        <div class="grid grid-cols-2 gap-3 text-xs">
-                            <div>
-                                <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Contraseña de Correo</span>
-                                <div class="text-emerald-400 font-mono bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200 select-all">
-                                    <?= !empty($ficha_m365['password_clear']) ? htmlspecialchars($ficha_m365['password_clear']) : '<span class="text-slate-400">Sin contraseña registrada</span>' ?>
-                                </div>
-                            </div>
-                            <div>
-                                <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Próxima Facturación</span>
-                                <div class="text-slate-600 bg-slate-100 p-2.5 rounded-lg mt-1 border border-slate-200">
-                                    <?= date('d/m/Y', strtotime($ficha_m365['fecha_proximo_pago'])) ?>
-                                    <span class="text-[10px] text-slate-400 font-normal">(<?= htmlspecialchars($ficha_m365['ciclo_facturacion']) ?>)</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                <?php else: ?>
-                    <div class="text-xs text-slate-400 italic bg-slate-100 border border-slate-200 rounded-2xl p-4">
-                        Ninguna cuenta de correo corporativo M365 vinculada actualmente.
-                    </div>
-                <?php endif; ?>
-            </div>
-            
-            <!-- Credenciales Personales -->
-            <div class="space-y-3 pt-4 border-t border-slate-100">
-                <h5 class="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                    <i class="fa-solid fa-key text-amber-400"></i> Credenciales Personales
-                </h5>
-                <?php if (!empty($ficha_cred_pers)): ?>
-                    <div class="bg-slate-100 border border-slate-200 rounded-2xl p-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                            <?php foreach ($ficha_cred_pers as $cred): ?>
-                                <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1 flex items-center gap-1.5">
-                                        <?php if($cred['tipo'] === 'Gmail') echo '<i class="fa-brands fa-google text-red-500"></i>'; ?>
-                                        <?php if($cred['tipo'] === 'Correo Corporativo') echo '<i class="fa-solid fa-envelope text-blue-500"></i>'; ?>
-                                        <?php if($cred['tipo'] === 'PC PIN') echo '<i class="fa-solid fa-desktop text-slate-500"></i>'; ?>
-                                        <?php if($cred['tipo'] === 'Pass AG') echo '<i class="fa-solid fa-server text-indigo-500"></i>'; ?>
-                                        <?= htmlspecialchars($cred['tipo']) ?>
-                                    </span>
-                                    <?php if (!empty($cred['usuario'])): ?>
-                                        <div class="font-bold text-slate-700 mb-1"><?= htmlspecialchars($cred['usuario']) ?></div>
-                                    <?php endif; ?>
-                                    <div class="text-amber-600 font-mono bg-slate-50 p-2 rounded border border-slate-100 select-all">
-                                        <?= !empty($cred['password_clear']) ? htmlspecialchars($cred['password_clear']) : '<span class="text-slate-400">N/A</span>' ?>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                <?php else: ?>
-                    <div class="text-xs text-slate-400 italic bg-slate-100 border border-slate-200 rounded-2xl p-4">
-                        Ninguna credencial personal registrada.
-                    </div>
-                <?php endif; ?>
-            </div>
-
-        </div>
-
-        <div class="p-6 bg-slate-50 border-t border-slate-200 flex">
-            <a href="index.php" class="flex-1 text-center py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-800 font-semibold text-sm border border-slate-200 transition">
-                Cerrar Ficha
-            </a>
-        </div>
-
-    </div>
-</div>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const targetId = <?= (int)$ficha_empleado['id'] ?>;
+        const allEmps = <?= json_encode($empleados, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+        const empFound = allEmps.find(e => parseInt(e.id) === targetId);
+        if (empFound) {
+            verFicha360(empFound);
+        }
+    });
+</script>
 <?php endif; ?>
 
 <script>
@@ -823,6 +682,7 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
     }
 
     const equiposDisponibles = <?= json_encode($equipos_disponibles, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const m365Disponibles = <?= json_encode($m365_disponibles, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
     function abrirEditarEmpleado(emp) {
         document.getElementById('edit_emp_id').value = emp.id || '';
@@ -887,6 +747,52 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
                 opt.innerText = `[${eq.tipo}] ${eq.marca} ${eq.modelo} (${eq.service_tag_sn})`;
                 newEqSelect.appendChild(opt);
             });
+        }
+
+        
+        // Popular Cuenta Microsoft 365
+        const m365ActualContainer = document.getElementById('edit_emp_m365_actual_container');
+        const m365CorreoText = document.getElementById('edit_emp_m365_correo_text');
+        const m365LicText = document.getElementById('edit_emp_m365_lic_text');
+        const m365Badge = document.getElementById('edit_emp_m365_badge');
+        const chkDesasigM365 = document.getElementById('edit_emp_desasignar_m365');
+        const m365Select = document.getElementById('edit_emp_m365_id');
+        const nuevaM365Div = document.getElementById('edit_emp_nueva_m365_div');
+        
+        if (chkDesasigM365) chkDesasigM365.checked = false;
+        if (nuevaM365Div) nuevaM365Div.classList.add('hidden');
+
+        if (emp.correo_m365) {
+            if (m365ActualContainer) m365ActualContainer.classList.remove('hidden');
+            if (m365CorreoText) m365CorreoText.innerText = emp.correo_m365;
+            if (m365LicText) m365LicText.innerText = emp.licencia_m365 || 'Licencia Activa';
+            if (m365Badge) {
+                m365Badge.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700';
+                m365Badge.innerText = 'Activa';
+            }
+        } else {
+            if (m365ActualContainer) m365ActualContainer.classList.add('hidden');
+            if (m365Badge) {
+                m365Badge.className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-600';
+                m365Badge.innerText = 'Sin Cuenta';
+            }
+        }
+
+        // Popular select de M365 disponibles
+        if (m365Select) {
+            m365Select.innerHTML = '<option value="">-- ' + (emp.correo_m365 ? 'Mantener cuenta actual' : 'Sin asignar / Seleccionar cuenta libre...') + ' --</option>';
+            
+            if (typeof m365Disponibles !== 'undefined' && m365Disponibles.length > 0) {
+                const optGroup = document.createElement('optgroup');
+                optGroup.label = 'Cuentas M365 Disponibles en Pool (' + m365Disponibles.length + ')';
+                m365Disponibles.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.innerText = `${m.correo} (${m.licencia_tipo || 'Standard'})`;
+                    optGroup.appendChild(opt);
+                });
+                m365Select.appendChild(optGroup);
+            }
         }
 
         abrirModal('modal-editar-empleado');
@@ -979,6 +885,40 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
                 </div>
             </div>
 
+            <!-- ASIGNACIÓN / GESTIÓN DE CUENTA MICROSOFT 365 -->
+            <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-200 pb-2">
+                    <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-cloud text-emerald-500"></i> Cuenta Microsoft 365
+                    </h4>
+                    <span id="edit_emp_m365_badge" class="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-600">Sin Cuenta</span>
+                </div>
+                
+                <div id="edit_emp_m365_actual_container" class="hidden bg-emerald-50/60 p-3 rounded-xl border border-emerald-200/80 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-bold text-slate-800 block" id="edit_emp_m365_correo_text">--</span>
+                        <span class="text-[11px] text-emerald-700 font-medium" id="edit_emp_m365_lic_text">--</span>
+                    </div>
+                    <label class="flex items-center gap-1.5 text-xs text-rose-500 font-semibold cursor-pointer hover:text-rose-700 transition bg-white px-2.5 py-1 rounded-lg border border-rose-200">
+                        <input type="checkbox" name="desasignar_m365" id="edit_emp_desasignar_m365" value="1" class="rounded text-rose-500 focus:ring-rose-400">
+                        <span>Desvincular</span>
+                    </label>
+                </div>
+
+                <div id="edit_emp_m365_select_container">
+                    <div class="flex items-center justify-between mb-2">
+                        <label for="edit_emp_m365_id" class="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Asignar o Cambiar Cuenta M365 (Disponible)</label>
+                        <a href="../credenciales/index.php?tab=m365" target="_blank" class="text-[11px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1 transition">
+                            <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i> Administrar Licencias
+                        </a>
+                    </div>
+                    <select autocomplete="off" name="m365_id" id="edit_emp_m365_id"
+                            class="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400">
+                        <option value="">-- Mantener actual / Sin cambios --</option>
+                    </select>
+                </div>
+            </div>
+
             <!-- CREDENCIALES PERSONALES -->
             <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-4">
                 <h4 class="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-200 pb-2">
@@ -1023,56 +963,93 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
     </div>
 </div>
 
-<!-- Modal Detalle Colaborador IT -->
-<div id="modal-detalle-empleado" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
-    <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in relative">
-        <div class="p-6 border-b border-slate-100 bg-slate-50/80 flex items-center justify-between">
+<!-- ========================================================
+     MODAL FICHA 360° INTEGRAL DEL COLABORADOR
+     ======================================================== -->
+<div id="modal-ficha-360" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[150] flex items-center justify-center hidden p-4">
+    <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-fade-in">
+
+        <!-- Header -->
+        <div class="p-6 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-white flex items-center justify-between shrink-0">
             <div class="flex items-center gap-3">
-                <div class="h-11 w-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 flex items-center justify-center text-lg shrink-0 font-bold" id="demp_initials">
-                    E
-                </div>
+                <div class="h-12 w-12 rounded-2xl bg-violet-100 border border-violet-300 text-violet-700 flex items-center justify-center text-xl font-extrabold shrink-0" id="f360_initials">C</div>
                 <div>
-                    <h3 class="font-bold text-slate-800 text-base" id="demp_nombre">Nombre del Empleado</h3>
-                    <p class="text-xs text-slate-500" id="demp_cargo_depto">Cargo • Departamento</p>
+                    <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                        <span id="f360_nombre">Colaborador</span>
+                    </h3>
+                    <p class="text-xs text-slate-500 font-medium" id="f360_info">Cargo · Departamento · Sucursal</p>
                 </div>
             </div>
-            <button onclick="cerrarModal('modal-detalle-empleado')" class="h-8 w-8 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition">
+            <button onclick="cerrarModal('modal-ficha-360')" class="h-9 w-9 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition text-lg">
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
 
-        <div class="p-6 space-y-4 text-sm">
-            <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
-                <div>
-                    <span class="text-[11px] text-slate-400 block font-semibold uppercase tracking-wider">Ubicación / Sucursal</span>
-                    <span class="font-bold text-slate-800" id="demp_sucursal">--</span>
+        <!-- Body scrollable -->
+        <div class="overflow-y-auto flex-1 p-6 space-y-5">
+
+            <!-- BLOQUE 1: HARDWARE Y EQUIPOS ASIGNADOS -->
+            <div id="f360_equipos_container" class="space-y-4">
+                <!-- Se renderiza dinámicamente -->
+            </div>
+
+            <!-- BLOQUE 2: CUENTA MICROSOFT 365 -->
+            <div id="f360_bloque_m365" class="border border-emerald-200 rounded-2xl overflow-hidden">
+                <div class="bg-emerald-50 px-4 py-2.5 flex items-center gap-2 border-b border-emerald-200">
+                    <i class="fa-solid fa-cloud text-emerald-600 text-sm"></i>
+                    <span class="text-xs font-bold text-emerald-700 uppercase tracking-wider">Cuenta Microsoft 365</span>
+                    <span class="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200" id="f360_m365_estado">Activa</span>
+                </div>
+                <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-white">
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold">Correo M365</span>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <span class="font-mono font-bold text-slate-800 text-xs truncate" id="f360_m365_correo">--</span>
+                            <button type="button" onclick="copiarTexto(document.getElementById('f360_m365_correo').innerText, this)" class="text-slate-400 hover:text-emerald-600 p-0.5" title="Copiar correo"><i class="fa-regular fa-copy text-xs"></i></button>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold">Tipo de Licencia</span>
+                        <span class="font-bold text-slate-700 block mt-0.5" id="f360_m365_lic">--</span>
+                    </div>
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold">Ciclo / Renovación</span>
+                        <span class="font-bold text-slate-700 block mt-0.5" id="f360_m365_ciclo">--</span>
+                    </div>
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold mb-1">Contraseña M365</span>
+                        <div class="flex items-center gap-2">
+                            <input type="password" readonly id="f360_m365_pass" class="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono flex-1 text-slate-800">
+                            <button type="button" onclick="toggleFieldPass('f360_m365_pass','f360_m365_pass_ico')" class="px-2 py-1 rounded bg-slate-200 text-slate-600 hover:text-slate-800 text-xs" title="Revelar">
+                                <i class="fa-solid fa-eye" id="f360_m365_pass_ico"></i>
+                            </button>
+                            <button type="button" onclick="copiarTexto(document.getElementById('f360_m365_pass').value, this)" class="px-2 py-1 rounded bg-slate-200 text-slate-600 hover:text-slate-800 text-xs" title="Copiar contraseña">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div>
-                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Recursos Vinculados</span>
-                <div class="space-y-2">
-                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
-                        <span class="text-[11px] text-slate-400 block font-semibold">Equipo de Cómputo</span>
-                        <div class="font-bold text-slate-800 mt-0.5 flex items-center gap-1.5" id="demp_equipo">
-                            <i class="fa-solid fa-laptop text-cyan-600"></i> --
-                        </div>
-                    </div>
-                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
-                        <span class="text-[11px] text-slate-400 block font-semibold">Cuenta Microsoft 365</span>
-                        <div class="font-bold text-slate-800 mt-0.5 flex items-center gap-1.5" id="demp_m365">
-                            <i class="fa-solid fa-cloud text-emerald-500"></i> --
-                        </div>
-                    </div>
+            <!-- BLOQUE 3: CUENTAS PERSONALES Y ACCESO -->
+            <div class="border border-amber-200 rounded-2xl overflow-hidden">
+                <div class="bg-amber-50 px-4 py-2.5 flex items-center gap-2 border-b border-amber-200">
+                    <i class="fa-solid fa-key text-amber-600 text-sm"></i>
+                    <span class="text-xs font-bold text-amber-700 uppercase tracking-wider">Cuentas Personales y Acceso</span>
+                </div>
+                <div class="p-4 space-y-3 bg-white" id="f360_credenciales_container">
+                    <!-- Se renderiza dinámicamente -->
                 </div>
             </div>
+
         </div>
 
-        <div class="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-            <a id="demp_link_ficha" href="#" class="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition flex items-center gap-1.5">
-                <i class="fa-solid fa-key"></i> Ficha de Credenciales
-            </a>
-            <button onclick="cerrarModal('modal-detalle-empleado')" class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-md">
+        <!-- Footer -->
+        <div class="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
+            <button type="button" onclick="cerrarModal('modal-ficha-360'); if (window.currentEmp360) abrirEditarEmpleado(window.currentEmp360);" class="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-2">
+                <i class="fa-solid fa-pen"></i> Editar Colaborador
+            </button>
+            <button type="button" onclick="cerrarModal('modal-ficha-360')" class="px-5 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition shadow-sm">
                 Cerrar
             </button>
         </div>
@@ -1080,26 +1057,280 @@ $list_deptos = $db->query("SELECT DISTINCT departamento FROM empleados WHERE dep
 </div>
 
 <script>
-    function verDetalleEmpleado(emp) {
-        document.getElementById('demp_nombre').innerText = emp.nombre || '';
-        document.getElementById('demp_cargo_depto').innerText = (emp.cargo || '') + ' • ' + (emp.departamento || '');
-        document.getElementById('demp_sucursal').innerText = emp.sucursal_nombre || '--';
-        document.getElementById('demp_initials').innerText = (emp.nombre || 'E').charAt(0).toUpperCase();
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
 
-        let equipoHtml = '<span class="text-slate-400 font-normal italic">Sin equipo asignado</span>';
-        if (emp.equipo_vinculado) {
-            const eqList = emp.equipo_vinculado.split(', ');
-            equipoHtml = eqList.map(eq => `<div class="flex items-center gap-1.5"><i class="fa-solid fa-laptop text-cyan-600 text-xs shrink-0"></i> <span>${escapeHtml(eq)}</span></div>`).join('');
+    window.currentEmp360 = null;
+
+    function copiarTexto(texto, btn) {
+        if (!texto) return;
+        navigator.clipboard.writeText(texto).then(() => {
+            if (btn) {
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    const originalClass = icon.className;
+                    icon.className = 'fa-solid fa-check text-emerald-500';
+                    setTimeout(() => { icon.className = originalClass; }, 1500);
+                }
+            }
+        });
+    }
+
+    function toggleFieldPass(inputId, iconId) {
+        const inp = document.getElementById(inputId);
+        const ico = document.getElementById(iconId);
+        if (!inp || !ico) return;
+        if (inp.type === 'password') {
+            inp.type = 'text';
+            ico.className = 'fa-solid fa-eye-slash text-slate-700';
+        } else {
+            inp.type = 'password';
+            ico.className = 'fa-solid fa-eye text-slate-500';
         }
-        document.getElementById('demp_equipo').innerHTML = equipoHtml;
+    }
 
-        document.getElementById('demp_m365').innerHTML = emp.correo_m365 
-            ? '<i class="fa-solid fa-cloud text-emerald-500"></i> ' + emp.correo_m365 + ' <span class="text-[10px] text-slate-400 font-normal">(' + (emp.licencia_m365 || '') + ')</span>' 
-            : '<span class="text-slate-400 font-normal italic">Sin cuenta M365 asociada</span>';
+    function verFicha360(emp) {
+        window.currentEmp360 = emp;
 
-        document.getElementById('demp_link_ficha').href = '?details_id=' + emp.id;
+        document.getElementById('f360_nombre').innerText = emp.nombre || 'Colaborador';
+        document.getElementById('f360_info').innerText = [emp.cargo, emp.departamento, emp.empresa_nombre, emp.sucursal_nombre].filter(Boolean).join(' • ');
+        document.getElementById('f360_initials').innerText = (emp.nombre || 'E').charAt(0).toUpperCase();
 
-        abrirModal('modal-detalle-empleado');
+        // 1. Hardware y Equipos Asignados
+        const containerEq = document.getElementById('f360_equipos_container');
+        containerEq.innerHTML = '';
+        const equipos = emp.equipos_lista || [];
+
+        if (equipos.length > 0) {
+            equipos.forEach((eq, idx) => {
+                let iconClass = 'fa-laptop';
+                const t = (eq.tipo || '').toLowerCase();
+                if (t.includes('desktop') || t.includes('computadora')) iconClass = 'fa-desktop';
+                else if (t.includes('celular') || t.includes('móvil') || t.includes('movil')) iconClass = 'fa-mobile-screen-button';
+                else if (t.includes('servidor') || t.includes('server')) iconClass = 'fa-server';
+                else if (t.includes('impresora')) iconClass = 'fa-print';
+
+                const eqPassId = 'f360_eq_pass_' + idx;
+                const eqPassIcoId = 'f360_eq_pass_ico_' + idx;
+
+                const eqDiv = document.createElement('div');
+                eqDiv.className = 'border border-cyan-200 rounded-2xl overflow-hidden shadow-sm';
+                eqDiv.innerHTML = `
+                    <div class="bg-cyan-50 px-4 py-2.5 flex items-center justify-between border-b border-cyan-200">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid ${iconClass} text-cyan-600 text-sm"></i>
+                            <span class="text-xs font-bold text-cyan-800 uppercase tracking-wider">${escapeHtml(eq.tipo || 'Equipo')}</span>
+                            <span class="text-xs font-bold text-slate-800">• ${escapeHtml(eq.marca || '')} ${escapeHtml(eq.modelo || '')}</span>
+                        </div>
+                        <span class="text-[11px] font-mono text-cyan-700 bg-cyan-100 px-2 py-0.5 rounded-full font-bold">
+                            S/N: ${escapeHtml(eq.service_tag_sn || 'Sin Serial')}
+                        </span>
+                    </div>
+                    <div class="p-4 grid grid-cols-2 md:grid-cols-3 gap-3 text-xs bg-white">
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Procesador</span>
+                            <span class="font-medium text-slate-700 block mt-0.5">${escapeHtml(eq.procesador || 'N/A')}</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">RAM / Disco</span>
+                            <span class="font-medium text-slate-700 block mt-0.5">${escapeHtml(eq.ram || 'N/A')} / ${escapeHtml(eq.disco || 'N/A')}</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Dirección IP</span>
+                            <span class="font-mono text-slate-700 block mt-0.5">${escapeHtml(eq.ip_direccion || 'Sin IP asignada')}</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Acceso a Windows</span>
+                            <span class="font-bold text-indigo-600 block mt-0.5"><i class="fa-brands fa-windows text-blue-500"></i> Azure AD / PIN</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">PIN de Seguridad PC</span>
+                            <div class="flex items-center gap-1.5 mt-0.5">
+                                <span class="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">${escapeHtml(emp.pc_pin || 'No registrado')}</span>
+                                ${emp.pc_pin ? `<button type="button" onclick="copiarTexto('${escapeHtml(emp.pc_pin)}', this)" class="text-slate-400 hover:text-cyan-600 p-0.5" title="Copiar PIN"><i class="fa-regular fa-copy text-xs"></i></button>` : ''}
+                            </div>
+                        </div>
+                        ${eq.usuario_local ? `
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Usuario Local Admin</span>
+                            <span class="font-mono text-slate-700 block mt-0.5">${escapeHtml(eq.usuario_local)}</span>
+                        </div>
+                        <div class="col-span-2">
+                            <span class="text-[11px] text-slate-400 block font-semibold mb-1">Contraseña Local Admin</span>
+                            <div class="flex items-center gap-2">
+                                <input type="password" readonly id="${eqPassId}" value="${escapeHtml(eq.eq_pass_plain || '')}" class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono flex-1 text-slate-800">
+                                <button type="button" onclick="toggleFieldPass('${eqPassId}','${eqPassIcoId}')" class="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs"><i class="fa-solid fa-eye" id="${eqPassIcoId}"></i></button>
+                                <button type="button" onclick="copiarTexto('${escapeHtml(eq.eq_pass_plain || '')}', this)" class="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+                        </div>` : ''}
+                        ${eq.eq_bitlocker_plain ? `
+                        <div class="col-span-2 md:col-span-3 pt-2 border-t border-slate-100">
+                            <span class="text-[11px] text-slate-400 block font-semibold">Clave BitLocker de Recuperación</span>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                <span class="font-mono text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 select-all break-all">${escapeHtml(eq.eq_bitlocker_plain)}</span>
+                                <button type="button" onclick="copiarTexto('${escapeHtml(eq.eq_bitlocker_plain)}', this)" class="text-slate-400 hover:text-amber-600 p-1" title="Copiar BitLocker"><i class="fa-regular fa-copy text-xs"></i></button>
+                            </div>
+                        </div>` : ''}
+                    </div>
+                `;
+                containerEq.appendChild(eqDiv);
+            });
+        } else if (emp.pc_pin || emp.pass_ag_plain) {
+            const remoteDiv = document.createElement('div');
+            remoteDiv.className = 'border border-indigo-200 rounded-2xl overflow-hidden bg-white shadow-sm';
+            remoteDiv.innerHTML = `
+                <div class="bg-indigo-50 px-4 py-2.5 flex items-center justify-between border-b border-indigo-200">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-network-wired text-indigo-600 text-sm"></i>
+                        <span class="text-xs font-bold text-indigo-800 uppercase tracking-wider">Terminal Remoto / Credencial Local</span>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                        ${escapeHtml(emp.sucursal_nombre || 'Remoto')}
+                    </span>
+                </div>
+                <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold">PIN de Inicio de Sesión PC</span>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="font-mono font-bold text-slate-800 text-sm bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">${escapeHtml(emp.pc_pin || 'No registrado')}</span>
+                            ${emp.pc_pin ? `<button type="button" onclick="copiarTexto('${escapeHtml(emp.pc_pin)}', this)" class="text-slate-400 hover:text-indigo-600 p-1" title="Copiar PIN"><i class="fa-regular fa-copy text-xs"></i></button>` : ''}
+                        </div>
+                    </div>
+                    <div>
+                        <span class="text-[11px] text-slate-400 block font-semibold">Contraseña AG / Sistema</span>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="font-mono font-bold text-indigo-700 text-sm bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-200">${escapeHtml(emp.pass_ag_plain || 'No registrada')}</span>
+                            ${emp.pass_ag_plain ? `<button type="button" onclick="copiarTexto('${escapeHtml(emp.pass_ag_plain)}', this)" class="text-slate-400 hover:text-indigo-600 p-1" title="Copiar AG"><i class="fa-regular fa-copy text-xs"></i></button>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+            containerEq.appendChild(remoteDiv);
+        } else {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'border border-cyan-100 rounded-2xl p-4 text-center bg-slate-50/50';
+            emptyDiv.innerHTML = `<span class="text-slate-400 italic text-xs">Sin equipo de cómputo asignado en inventario</span>`;
+            containerEq.appendChild(emptyDiv);
+        }
+
+        // 2. Cuenta Microsoft 365
+        const bloqueM365 = document.getElementById('f360_bloque_m365');
+        if (emp.correo_m365) {
+            bloqueM365.classList.remove('hidden');
+            document.getElementById('f360_m365_correo').innerText = emp.correo_m365 || '--';
+            document.getElementById('f360_m365_lic').innerText = emp.licencia_m365 || 'Licencia Estándar';
+            document.getElementById('f360_m365_ciclo').innerText = (emp.m365_ciclo || 'Mensual') + (emp.m365_proximo_pago ? ' · Próximo pago: ' + emp.m365_proximo_pago : '');
+            document.getElementById('f360_m365_estado').innerText = emp.m365_estado || 'Activa';
+            document.getElementById('f360_m365_pass').value = emp.m365_pass_plain || '';
+            document.getElementById('f360_m365_pass').type = 'password';
+            document.getElementById('f360_m365_pass_ico').className = 'fa-solid fa-eye text-slate-500';
+        } else {
+            bloqueM365.classList.add('hidden');
+        }
+
+        // 3. Cuentas Personales y Acceso
+        const containerCreds = document.getElementById('f360_credenciales_container');
+        containerCreds.innerHTML = '';
+        let hasCreds = false;
+
+        // Gmail
+        if (emp.correo_gmail || emp.pass_gmail_plain) {
+            hasCreds = true;
+            containerCreds.innerHTML += `
+                <div class="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-2">
+                    <div class="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        <i class="fa-brands fa-google text-red-500"></i> Cuenta Gmail
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Correo Gmail</span>
+                            <div class="flex items-center gap-1.5 mt-0.5">
+                                <span class="font-mono font-bold text-slate-800 text-xs">${escapeHtml(emp.correo_gmail || 'Sin correo')}</span>
+                                ${emp.correo_gmail ? `<button type="button" onclick="copiarTexto('${escapeHtml(emp.correo_gmail)}', this)" class="text-slate-400 hover:text-red-500 p-0.5"><i class="fa-regular fa-copy text-xs"></i></button>` : ''}
+                            </div>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold mb-1">Contraseña Gmail</span>
+                            <div class="flex items-center gap-2">
+                                <input type="password" readonly id="f360_gmail_pass" value="${escapeHtml(emp.pass_gmail_plain || '')}" class="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono flex-1 text-slate-800">
+                                <button type="button" onclick="toggleFieldPass('f360_gmail_pass','f360_gmail_pass_ico')" class="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs"><i class="fa-solid fa-eye" id="f360_gmail_pass_ico"></i></button>
+                                <button type="button" onclick="copiarTexto('${escapeHtml(emp.pass_gmail_plain || '')}', this)" class="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // PC PIN
+        if (emp.pc_pin) {
+            hasCreds = true;
+            containerCreds.innerHTML += `
+                <div class="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-2">
+                    <div class="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        <i class="fa-solid fa-desktop text-slate-500"></i> PIN de Seguridad PC (Windows)
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Usuario / ID</span>
+                            <span class="font-mono font-bold text-slate-800 text-xs block mt-0.5">${escapeHtml(emp.nombre || 'N/A')}</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold mb-1">PIN de Acceso</span>
+                            <div class="flex items-center gap-2">
+                                <input type="password" readonly id="f360_pin_pass" value="${escapeHtml(emp.pc_pin || '')}" class="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono flex-1 text-slate-800">
+                                <button type="button" onclick="toggleFieldPass('f360_pin_pass','f360_pin_pass_ico')" class="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs"><i class="fa-solid fa-eye" id="f360_pin_pass_ico"></i></button>
+                                <button type="button" onclick="copiarTexto('${escapeHtml(emp.pc_pin || '')}', this)" class="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Pass AG
+        if (emp.pass_ag_plain) {
+            hasCreds = true;
+            containerCreds.innerHTML += `
+                <div class="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-2">
+                    <div class="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        <i class="fa-solid fa-server text-indigo-500"></i> Contraseña AG / Sistema ERP
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold">Sistema</span>
+                            <span class="font-bold text-slate-800 text-xs block mt-0.5">Acceso Corporativo AG</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-400 block font-semibold mb-1">Contraseña AG</span>
+                            <div class="flex items-center gap-2">
+                                <input type="password" readonly id="f360_ag_pass" value="${escapeHtml(emp.pass_ag_plain || '')}" class="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono flex-1 text-slate-800">
+                                <button type="button" onclick="toggleFieldPass('f360_ag_pass','f360_ag_pass_ico')" class="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs"><i class="fa-solid fa-eye" id="f360_ag_pass_ico"></i></button>
+                                <button type="button" onclick="copiarTexto('${escapeHtml(emp.pass_ag_plain || '')}', this)" class="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (!hasCreds) {
+            containerCreds.innerHTML = `<span class="text-slate-400 italic text-xs">Ninguna credencial personal registrada</span>`;
+        }
+
+        abrirModal('modal-ficha-360');
+    }
+
+    // Alias para compatibilidad hacia atrás
+    function verDetalleEmpleado(emp) {
+        verFicha360(emp);
     }
 </script>
 

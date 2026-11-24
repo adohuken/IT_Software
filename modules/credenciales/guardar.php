@@ -295,27 +295,21 @@ try {
             }
 
             $password_plano = $_POST['password'] ?? '';
-            $pass_ag_plano = $_POST['pass_ag'] ?? '';
-            $correo_gmail = trim($_POST['correo_gmail'] ?? '');
-            $pass_gmail_plano = $_POST['pass_gmail'] ?? '';
-
             $fecha_inicializacion = !empty($_POST['fecha_inicializacion']) ? $_POST['fecha_inicializacion'] : date('Y-m-d');
             $ciclo_facturacion = $_POST['ciclo_facturacion'];
             $estado = $_POST['estado'];
 
-            // Cifrar contraseñas (AES-256)
+            // Cifrar contraseña M365 (AES-256)
             $password_cifrado = !empty($password_plano) ? Security::encrypt($password_plano) : null;
-            $pass_ag_cifrado = !empty($pass_ag_plano) ? Security::encrypt($pass_ag_plano) : null;
-            $pass_gmail_cifrado = !empty($pass_gmail_plano) ? Security::encrypt($pass_gmail_plano) : null;
 
             // Calcular fecha automática de próximo pago
             $fecha_proximo_pago = calcularProximoPago($fecha_inicializacion, $ciclo_facturacion);
 
             $stmt = $db->prepare("
-                INSERT INTO cuentas_m365 (empleado_id, correo, licencia_tipo, password_cifrado, pass_ag_cifrado, correo_gmail, pass_gmail_cifrado, fecha_inicializacion, ciclo_facturacion, fecha_proximo_pago, estado) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO cuentas_m365 (empleado_id, correo, licencia_tipo, password_cifrado, fecha_inicializacion, ciclo_facturacion, fecha_proximo_pago, estado) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ");
-            $stmt->execute([$empleado_id, $correo, $licencia_tipo, $password_cifrado, $pass_ag_cifrado, $correo_gmail, $pass_gmail_cifrado, $fecha_inicializacion, $ciclo_facturacion, $fecha_proximo_pago, $estado]);
+            $stmt->execute([$empleado_id, $correo, $licencia_tipo, $password_cifrado, $fecha_inicializacion, $ciclo_facturacion, $fecha_proximo_pago, $estado]);
 
             $_SESSION['flash_success'] = "Cuenta M365 creada correctamente.";
             header('Location: index.php?tab=m365');
@@ -345,10 +339,6 @@ try {
                 }
             }
             $password_plano = $_POST['password'] ?? '';
-            $pass_ag_plano = $_POST['pass_ag'] ?? '';
-            $correo_gmail = trim($_POST['correo_gmail'] ?? '');
-            $pass_gmail_plano = $_POST['pass_gmail'] ?? '';
-
             $fecha_inicializacion = $_POST['fecha_inicializacion'];
             $ciclo_facturacion = $_POST['ciclo_facturacion'];
             $estado = $_POST['estado'];
@@ -363,8 +353,7 @@ try {
                 'fecha_inicializacion = ?',
                 'ciclo_facturacion = ?',
                 'fecha_proximo_pago = ?',
-                'estado = ?',
-                'correo_gmail = ?'
+                'estado = ?'
             ];
             $params = [
                 $empleado_id,
@@ -373,21 +362,12 @@ try {
                 $fecha_inicializacion,
                 $ciclo_facturacion,
                 $fecha_proximo_pago,
-                $estado,
-                !empty($correo_gmail) ? $correo_gmail : null
+                $estado
             ];
 
             if (!empty($password_plano)) {
                 $dbFields[] = 'password_cifrado = ?';
                 $params[] = Security::encrypt($password_plano);
-            }
-            if (!empty($pass_ag_plano)) {
-                $dbFields[] = 'pass_ag_cifrado = ?';
-                $params[] = Security::encrypt($pass_ag_plano);
-            }
-            if (!empty($pass_gmail_plano)) {
-                $dbFields[] = 'pass_gmail_cifrado = ?';
-                $params[] = Security::encrypt($pass_gmail_plano);
             }
 
             $params[] = $id;
@@ -396,7 +376,7 @@ try {
             $stmt = $db->prepare($sql);
             $stmt->execute($params);
 
-            $_SESSION['flash_success'] = "Cuenta M365 y credenciales adicionales actualizadas.";
+            $_SESSION['flash_success'] = "Cuenta M365 actualizada correctamente.";
             header('Location: index.php?tab=m365');
             exit;
         }

@@ -74,17 +74,17 @@ $total_entregados  = (int)$db->query("SELECT COUNT(*) FROM recepciones_equipos W
 <div class="max-w-[1400px] mx-auto space-y-6">
 
     <!-- Encabezado y Acción Principal -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl shadow-xs border border-slate-200/80">
         <div>
-            <h1 class="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
-                <i class="fa-solid fa-file-signature text-cyan-500"></i> Recepción y Entregas de Equipos
+            <h1 class="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                <i class="fa-solid fa-file-signature text-blue-600 text-base"></i> Recepción y Entregas de Equipos
             </h1>
-            <p class="text-xs text-slate-400 mt-1">
+            <p class="text-xs text-slate-500 mt-0.5">
                 Gestión de equipos ingresados a IT para mantenimiento/configuración y emisión de Actas de Entrega oficiales.
             </p>
         </div>
-        <button onclick="openModalNuevo()" class="px-5 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-bold text-xs shadow-lg shadow-cyan-500/20 transition flex items-center gap-2 shrink-0">
-            <i class="fa-solid fa-plus text-sm"></i>
+        <button onclick="openModalNuevo()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition duration-150 flex items-center gap-2 shrink-0">
+            <i class="fa-solid fa-plus text-xs"></i>
             <span>Nuevo Ingreso de Equipo</span>
         </button>
     </div>

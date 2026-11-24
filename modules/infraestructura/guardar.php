@@ -520,5 +520,101 @@ if ($action === 'delete_subred' && isset($_GET['id'])) {
     exit;
 }
 
+// ==========================================
+// 9. GESTIÓN DE REDES WI-FI
+// ==========================================
+if ($action === 'save_wifi' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $wifi_id = !empty($_POST['wifi_id']) ? (int)$_POST['wifi_id'] : null;
+    $sucursal_id = !empty($_POST['sucursal_id']) ? (int)$_POST['sucursal_id'] : null;
+    $ssid = trim($_POST['ssid'] ?? '');
+    $password_wifi = trim($_POST['password_wifi'] ?? '');
+    $tipo_red = $_POST['tipo_red'] ?? 'Corporativa / Empleados';
+    $frecuencia = $_POST['frecuencia'] ?? 'Dual Band (2.4 / 5 GHz)';
+    $seguridad = trim($_POST['seguridad'] ?? 'WPA2-PSK');
+    $vlan_id = trim($_POST['vlan_id'] ?? '');
+    $ap_asociado = trim($_POST['ap_asociado'] ?? '');
+    $estado = $_POST['estado'] ?? 'Activa';
+    $notas = trim($_POST['notas'] ?? '');
+
+    if (empty($sucursal_id) || empty($ssid)) {
+        $_SESSION['flash_error'] = "Debe seleccionar una Sede/Sucursal e indicar el SSID (Nombre de la Red).";
+        header('Location: index.php?tab=wifi');
+        exit;
+    }
+
+    try {
+        if ($wifi_id) {
+            // Edición
+            if (!empty($password_wifi)) {
+                $password_cifrado = Security::encrypt($password_wifi);
+                $stmt = $db->prepare("
+                    UPDATE redes_wifi SET 
+                        sucursal_id = ?, ssid = ?, password_cifrado = ?, tipo_red = ?, 
+                        frecuencia = ?, seguridad = ?, vlan_id = ?, ap_asociado = ?, 
+                        estado = ?, notas = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $sucursal_id, $ssid, $password_cifrado, $tipo_red,
+                    $frecuencia, $seguridad, $vlan_id, $ap_asociado,
+                    $estado, $notas, $wifi_id
+                ]);
+            } else {
+                $stmt = $db->prepare("
+                    UPDATE redes_wifi SET 
+                        sucursal_id = ?, ssid = ?, tipo_red = ?, 
+                        frecuencia = ?, seguridad = ?, vlan_id = ?, ap_asociado = ?, 
+                        estado = ?, notas = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $sucursal_id, $ssid, $tipo_red,
+                    $frecuencia, $seguridad, $vlan_id, $ap_asociado,
+                    $estado, $notas, $wifi_id
+                ]);
+            }
+            $_SESSION['flash_success'] = "Red Wi-Fi <b>" . htmlspecialchars($ssid) . "</b> actualizada correctamente.";
+        } else {
+            // Nuevo registro
+            if (empty($password_wifi)) {
+                $_SESSION['flash_error'] = "La contraseña de la red Wi-Fi es obligatoria para un nuevo registro.";
+                header('Location: index.php?tab=wifi');
+                exit;
+            }
+            $password_cifrado = Security::encrypt($password_wifi);
+            $stmt = $db->prepare("
+                INSERT INTO redes_wifi (
+                    sucursal_id, ssid, password_cifrado, tipo_red, 
+                    frecuencia, seguridad, vlan_id, ap_asociado, 
+                    estado, notas
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $sucursal_id, $ssid, $password_cifrado, $tipo_red,
+                $frecuencia, $seguridad, $vlan_id, $ap_asociado,
+                $estado, $notas
+            ]);
+            $_SESSION['flash_success'] = "Red Wi-Fi <b>" . htmlspecialchars($ssid) . "</b> registrada exitosamente.";
+        }
+    } catch (PDOException $e) {
+        $_SESSION['flash_error'] = "Error al guardar red Wi-Fi: " . $e->getMessage();
+    }
+    header('Location: index.php?tab=wifi');
+    exit;
+}
+
+if ($action === 'delete_wifi' && isset($_GET['id'])) {
+    $wifi_id = (int)$_GET['id'];
+    try {
+        $stmt = $db->prepare("DELETE FROM redes_wifi WHERE id = ?");
+        $stmt->execute([$wifi_id]);
+        $_SESSION['flash_success'] = "Red Wi-Fi eliminada correctamente del registro.";
+    } catch (PDOException $e) {
+        $_SESSION['flash_error'] = "Error al eliminar red Wi-Fi: " . $e->getMessage();
+    }
+    header('Location: index.php?tab=wifi');
+    exit;
+}
+
 header('Location: index.php');
 exit;

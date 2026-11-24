@@ -156,13 +156,13 @@ if ($ver_historial_id > 0) {
     <!-- Encabezado de Página -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Inventario y Asignación de Hardware</h2>
-            <p class="text-slate-500 text-sm">Control de computadoras corporativas (Laptops, Desktops), periféricos y asignaciones a colaboradores.</p>
+            <h2 class="text-xl font-bold text-slate-900 tracking-tight">Inventario de Hardware y Asignaciones</h2>
+            <p class="text-slate-500 text-xs">Control de computadoras corporativas (Laptops, Desktops), periféricos y vinculación a colaboradores.</p>
         </div>
 
         <div class="flex items-center gap-2">
-            <button type="button" onclick="abrirNuevoEquipo()" class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition shadow-md shadow-slate-900/10 flex items-center gap-2">
-                <i class="fa-solid fa-plus"></i> Nuevo Equipo
+            <button type="button" onclick="abrirNuevoEquipo()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition duration-150 shadow-xs flex items-center gap-2">
+                <i class="fa-solid fa-plus text-xs"></i> Nuevo Equipo
             </button>
         </div>
     </div>
@@ -171,88 +171,88 @@ if ($ver_historial_id > 0) {
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <!-- Tarjeta 1: Total Activos -->
         <div onclick="filtrarPorEstado('')" 
-             class="bg-white rounded-2xl p-5 border <?= empty($filtro_estado) ? 'border-cyan-500 ring-2 ring-cyan-500/20 shadow-md' : 'border-slate-200/90 shadow-sm hover:border-slate-300 hover:shadow-md' ?> transition-all cursor-pointer group flex flex-col justify-between">
+             class="bg-white rounded-2xl p-5 border <?= empty($filtro_estado) ? 'border-blue-600 ring-2 ring-blue-500/20 shadow-xs' : 'border-slate-200/80 shadow-xs hover:border-slate-300 hover:shadow-sm' ?> transition-all cursor-pointer group flex flex-col justify-between">
             <div class="flex items-start justify-between">
                 <div>
-                    <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Total Hardware</span>
-                    <h3 class="text-3xl font-extrabold text-slate-800 mt-1"><?= $tot_activos ?></h3>
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Total Hardware</span>
+                    <h3 class="text-3xl font-extrabold text-slate-900 mt-1"><?= $tot_activos ?></h3>
                 </div>
-                <div class="h-12 w-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-600 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                <div class="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600 flex items-center justify-center text-base shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                     <i class="fa-solid fa-boxes-stacked"></i>
                 </div>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                 <span class="truncate"><?= $stats['total_laptops'] ?> Laptops • <?= $stats['total_desktops'] ?> Desktops</span>
-                <span class="font-bold text-cyan-600 shrink-0">Ver todos &rarr;</span>
+                <span class="font-semibold text-blue-600 shrink-0">Ver todos &rarr;</span>
             </div>
         </div>
 
         <!-- Tarjeta 2: Asignados -->
         <div onclick="filtrarPorEstado('Asignado')" 
-             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Asignado' ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md' : 'border-slate-200/90 shadow-sm hover:border-blue-300 hover:shadow-md' ?> transition-all cursor-pointer group flex flex-col justify-between">
+             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Asignado' ? 'border-blue-600 ring-2 ring-blue-500/20 shadow-xs' : 'border-slate-200/80 shadow-xs hover:border-blue-300 hover:shadow-sm' ?> transition-all cursor-pointer group flex flex-col justify-between">
             <div class="flex items-start justify-between">
                 <div>
                     <div class="flex items-center gap-2">
-                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Asignados</span>
-                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200"><?= $pct_asig ?>%</span>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Asignados</span>
+                        <span class="badge-pill badge-pill-info text-[10px]"><?= $pct_asig ?>%</span>
                     </div>
                     <h3 class="text-3xl font-extrabold text-blue-600 mt-1"><?= $tot_asig ?></h3>
                 </div>
-                <div class="h-12 w-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-600 flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                <div class="h-10 w-10 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600 flex items-center justify-center text-base shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                     <i class="fa-solid fa-user-check"></i>
                 </div>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                 <span>En uso por colaboradores</span>
-                <span class="font-bold text-blue-600 shrink-0">Filtrar &rarr;</span>
+                <span class="font-semibold text-blue-600 shrink-0">Filtrar &rarr;</span>
             </div>
         </div>
 
         <!-- Tarjeta 3: Disponibles en Stock (Sin Asignar) -->
         <div onclick="filtrarPorEstado('Disponible')" 
-             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Disponible' ? 'border-emerald-500 ring-2 ring-emerald-500/20 shadow-md' : 'border-slate-200/90 shadow-sm hover:border-emerald-300 hover:shadow-md' ?> transition-all cursor-pointer group flex flex-col justify-between">
+             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Disponible' ? 'border-emerald-600 ring-2 ring-emerald-500/20 shadow-xs' : 'border-slate-200/80 shadow-xs hover:border-emerald-300 hover:shadow-sm' ?> transition-all cursor-pointer group flex flex-col justify-between">
             <div class="flex items-start justify-between">
                 <div>
                     <div class="flex items-center gap-2">
-                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">En Stock (Libres)</span>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">En Stock</span>
                         <?php if ($tot_disp === 0): ?>
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Sin Reserva</span>
+                            <span class="badge-pill badge-pill-warning text-[10px]">Sin Reserva</span>
                         <?php else: ?>
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"><?= $pct_disp ?>% Libre</span>
+                            <span class="badge-pill badge-pill-success text-[10px]"><?= $pct_disp ?>% Libre</span>
                         <?php endif; ?>
                     </div>
                     <h3 class="text-3xl font-extrabold <?= $tot_disp > 0 ? 'text-emerald-600' : 'text-slate-400' ?> mt-1"><?= $tot_disp ?></h3>
                 </div>
-                <div class="h-12 w-12 rounded-2xl <?= $tot_disp > 0 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600' : 'bg-slate-100 border-slate-200 text-slate-400' ?> border flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                <div class="h-10 w-10 rounded-xl <?= $tot_disp > 0 ? 'bg-emerald-50 border-emerald-200/80 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-slate-50 border-slate-200 text-slate-400' ?> border flex items-center justify-center text-base shrink-0 transition-colors">
                     <i class="fa-solid fa-box-open"></i>
                 </div>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                 <span><?= $tot_disp > 0 ? 'Listos para entregar' : 'Requiere reabastecer' ?></span>
-                <span class="font-bold text-emerald-600 shrink-0">Filtrar &rarr;</span>
+                <span class="font-semibold text-emerald-600 shrink-0">Filtrar &rarr;</span>
             </div>
         </div>
 
         <!-- Tarjeta 4: En Mantenimiento -->
         <div onclick="filtrarPorEstado('Mantenimiento')" 
-             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Mantenimiento' ? 'border-amber-500 ring-2 ring-amber-500/20 shadow-md' : 'border-slate-200/90 shadow-sm hover:border-amber-300 hover:shadow-md' ?> transition-all cursor-pointer group flex flex-col justify-between">
+             class="bg-white rounded-2xl p-5 border <?= $filtro_estado === 'Mantenimiento' ? 'border-amber-600 ring-2 ring-amber-500/20 shadow-xs' : 'border-slate-200/80 shadow-xs hover:border-amber-300 hover:shadow-sm' ?> transition-all cursor-pointer group flex flex-col justify-between">
             <div class="flex items-start justify-between">
                 <div>
                     <div class="flex items-center gap-2">
-                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">En Mantenimiento</span>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Mantenimiento</span>
                         <?php if ($tot_mant > 0): ?>
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">En Taller</span>
+                            <span class="badge-pill badge-pill-warning text-[10px]">En Taller</span>
                         <?php endif; ?>
                     </div>
                     <h3 class="text-3xl font-extrabold <?= $tot_mant > 0 ? 'text-amber-600' : 'text-slate-400' ?> mt-1"><?= $tot_mant ?></h3>
                 </div>
-                <div class="h-12 w-12 rounded-2xl <?= $tot_mant > 0 ? 'bg-amber-500/10 border-amber-500/20 text-amber-600' : 'bg-slate-100 border-slate-200 text-slate-400' ?> border flex items-center justify-center text-xl shrink-0 group-hover:scale-105 transition-transform">
+                <div class="h-10 w-10 rounded-xl <?= $tot_mant > 0 ? 'bg-amber-50 border-amber-200/80 text-amber-600 group-hover:bg-amber-600 group-hover:text-white' : 'bg-slate-50 border-slate-200 text-slate-400' ?> border flex items-center justify-center text-base shrink-0 transition-colors">
                     <i class="fa-solid fa-screwdriver-wrench"></i>
                 </div>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                 <span>Revisión técnica o daños</span>
-                <span class="font-bold text-amber-600 shrink-0">Filtrar &rarr;</span>
+                <span class="font-semibold text-amber-600 shrink-0">Filtrar &rarr;</span>
             </div>
         </div>
     </div>

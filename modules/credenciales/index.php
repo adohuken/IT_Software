@@ -1,13 +1,21 @@
 <?php
 /**
- * Módulo de Gestión de Credenciales y Cuentas
- * Permite administrar credenciales de equipos, portales web y cuentas M365
+ * Módulo de Gestión de Cuentas Microsoft 365 & Licencias
  */
 
-// Redirección de compatibilidad: la Bóveda de Portales Web se centralizó en Infraestructura & Redes
-if (isset($_GET['tab']) && $_GET['tab'] === 'web') {
-    require_once __DIR__ . '/../../config/conexion.php';
+require_once __DIR__ . '/../../config/conexion.php';
+
+// Determinar pestaña activa (Por defecto: Microsoft 365 & Licencias)
+$tab = $_GET['tab'] ?? 'm365';
+
+// Redirecciones limpias ANTES de enviar encabezados HTML
+if ($tab === 'web') {
     header('Location: ' . BASE_URL . 'modules/infraestructura/index.php?tab=boveda');
+    exit;
+}
+
+if ($tab === 'fichas' || $tab === 'equipos') {
+    header('Location: ' . BASE_URL . 'modules/empleados/index.php');
     exit;
 }
 
@@ -15,12 +23,6 @@ require_once __DIR__ . '/../../includes/header.php';
 require_once __DIR__ . '/../../config/security.php';
 
 $db = Database::getConexion();
-
-// Determinar pestaña activa (Por defecto: Fichas Consolidadas)
-$tab = $_GET['tab'] ?? 'fichas';
-if ($tab === 'equipos') {
-    $tab = 'fichas';
-}
 
 // Cargar catálogos para formularios de creación
 $equipos = $db->query("SELECT id, tipo, marca, modelo, service_tag_sn FROM equipos WHERE estado != 'De Baja' AND id NOT IN (SELECT equipo_id FROM credenciales_equipos) ORDER BY tipo, marca")->fetchAll();
@@ -80,6 +82,28 @@ foreach ($cred_web_raw as $cw) {
     $cred_web[] = $cw;
 }
 
+// Cargar credenciales personales para unificación de datos
+$cred_pers_raw = $db->query("
+    SELECT cp.empleado_id, cp.tipo, cp.usuario, cp.password_cifrado 
+    FROM credenciales_personales cp
+    JOIN empleados e ON cp.empleado_id = e.id
+    WHERE e.estado = 'Activo'
+")->fetchAll();
+
+$cred_pers_map = [];
+foreach ($cred_pers_raw as $cp) {
+    if (!empty($cp['password_cifrado'])) {
+        try {
+            $cp['password_clear'] = Security::decrypt($cp['password_cifrado']);
+        } catch (Exception $e) {
+            $cp['password_clear'] = '[Error]';
+        }
+    } else {
+        $cp['password_clear'] = '';
+    }
+    $cred_pers_map[$cp['empleado_id']][] = $cp;
+}
+
 $cuentas_m365_raw = $db->query("
     SELECT c.*, emp.nombre AS empleado_nombre, emp.cargo AS empleado_cargo, emp.departamento AS empleado_depto, emp_comp.nombre AS empresa_nombre
     FROM cuentas_m365 c 
@@ -92,8 +116,7 @@ $cuentas_m365_raw = $db->query("
 $cuentas_m365 = [];
 foreach ($cuentas_m365_raw as $m365) {
     $m365['pass_plain'] = !empty($m365['password_cifrado']) ? Security::decrypt($m365['password_cifrado']) : '';
-    $m365['pass_ag_plain'] = !empty($m365['pass_ag_cifrado']) ? Security::decrypt($m365['pass_ag_cifrado']) : '';
-    $m365['pass_gmail_plain'] = !empty($m365['pass_gmail_cifrado']) ? Security::decrypt($m365['pass_gmail_cifrado']) : '';
+
     $cuentas_m365[] = $m365;
 }
 
@@ -290,28 +313,6 @@ $fichas_raw = $db->query("
     ORDER BY emp.nombre
 ")->fetchAll();
 
-// Cargar todas las credenciales personales de empleados activos
-$cred_pers_raw = $db->query("
-    SELECT cp.empleado_id, cp.tipo, cp.usuario, cp.password_cifrado 
-    FROM credenciales_personales cp
-    JOIN empleados e ON cp.empleado_id = e.id
-    WHERE e.estado = 'Activo'
-")->fetchAll();
-
-$cred_pers_map = [];
-foreach ($cred_pers_raw as $cp) {
-    if (!empty($cp['password_cifrado'])) {
-        try {
-            $cp['password_clear'] = Security::decrypt($cp['password_cifrado']);
-        } catch (Exception $e) {
-            $cp['password_clear'] = '[Error]';
-        }
-    } else {
-        $cp['password_clear'] = '';
-    }
-    $cred_pers_map[$cp['empleado_id']][] = $cp;
-}
-
 $fichas = [];
 $stats_paises = [
     'ALL' => ['label' => 'Todas las Sedes', 'flag' => '🌐', 'total' => 0, 'm365' => 0, 'equipos' => 0, 'remotos_pin' => 0, 'gmail' => 0],
@@ -403,59 +404,58 @@ foreach ($fichas_raw as $f) {
     <!-- Encabezado de Página -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-            <h2 class="text-2xl font-bold text-slate-800 tracking-wide">Cuentas & Accesos de Colaboradores</h2>
-            <p class="text-slate-500 text-sm">Control unificado de las 4 llaves corporativas: Microsoft 365 / Azure AD, PIN Windows, Gmail móvil y Sistema AG.</p>
+            <h2 class="text-xl font-bold text-slate-900 tracking-tight">Microsoft 365 & Licencias Corporativas</h2>
+            <p class="text-slate-500 text-xs">Gestión centralizada de cuentas cloud, ciclos de facturación y asignación a colaboradores.</p>
         </div>
 
         <!-- Botones de Acción según Pestaña -->
         <div>
             <?php if ($tab === 'm365'): ?>
                 <button onclick="abrirModal('modal-m365')"
-                    class="px-4 py-2.5 rounded-xl grad-cyan-blue hover:opacity-90 text-slate-800 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/10 flex items-center gap-2">
-                    <i class="fa-solid fa-plus"></i> Nueva Cuenta M365
+                    class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition duration-150">
+                    <i class="fa-solid fa-plus text-xs"></i> Nueva Cuenta M365
                 </button>
             <?php else: ?>
                 <a href="../empleados/index.php"
-                    class="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm tracking-wide shadow-lg shadow-violet-500/20 flex items-center gap-2 transition">
-                    <i class="fa-solid fa-users"></i> Directorio de Colaboradores
+                    class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition duration-150">
+                    <i class="fa-solid fa-users text-xs"></i> Directorio de Colaboradores
                 </a>
             <?php endif; ?>
         </div>
     </div>
 
     <!-- Pestañas (Tabs) de navegación de submódulos -->
-    <div class="border-b border-slate-200 flex gap-1 flex-wrap">
-        <a href="?tab=fichas"
-            class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'fichas') ? 'border-violet-500 text-violet-700 bg-violet-50/50 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
-            <i class="fa-solid fa-id-card text-xs <?= ($tab === 'fichas') ? 'text-violet-600' : '' ?>"></i> Fichas de Acceso (4 Llaves)
-        </a>
+    <div class="border-b border-slate-200/80 flex gap-2">
         <a href="?tab=m365"
-            class="px-5 py-3 text-sm font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'm365') ? 'border-cyan-400 text-cyan-800 bg-cyan-50/50 rounded-t-lg' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
-            <i class="fa-solid fa-cloud text-xs text-cyan-500"></i> Microsoft 365 / Licencias & Facturación
+            class="px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'm365') ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
+            <i class="fa-solid fa-cloud text-xs <?= ($tab === 'm365') ? 'text-blue-600' : 'text-slate-400' ?>"></i> Microsoft 365 & Licencias
+        </a>
+        <a href="../empleados/index.php"
+            class="px-4 py-2.5 text-xs font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition flex items-center gap-2">
+            <i class="fa-solid fa-id-card text-xs text-slate-400"></i> Fichas 360° en Colaboradores
         </a>
     </div>
 
     <!-- Barra de Filtros Dinámicos (Persistente) -->
-    <div
-        class="glass-panel p-4 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between border border-slate-200 bg-black/10">
+    <div class="bg-white p-4 rounded-2xl flex flex-col md:flex-row gap-3 items-center justify-between border border-slate-200/80 shadow-xs">
         <div class="flex-1 w-full relative flex items-center">
-            <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"></i>
+            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
             <input type="text" id="filtro-busqueda" 
                 oninput="toggleClearBtn('filtro-busqueda', 'btn_clear_credenciales'); aplicarFiltros();"
                 onkeydown="if(event.key === 'Escape'){ limpiarBuscador('filtro-busqueda', 'btn_clear_credenciales', aplicarFiltros); }"
-                placeholder="Buscar por cuenta, usuario, plataforma, equipo, departamento..."
-                class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 pl-11 pr-10 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 placeholder-gray-500 transition">
+                placeholder="Buscar por correo, colaborador, cargo, empresa..."
+                class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-9 pr-9 text-xs text-slate-800 font-medium focus:outline-none focus:border-blue-500 focus:bg-white placeholder-slate-400 transition">
             <button type="button" id="btn_clear_credenciales" 
                 onclick="limpiarBuscador('filtro-busqueda', 'btn_clear_credenciales', aplicarFiltros)" 
-                class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-1 rounded-full transition-all duration-200 hidden items-center justify-center cursor-pointer" 
                 title="Limpiar búsqueda">
                 <i class="fa-solid fa-circle-xmark text-sm"></i>
             </button>
         </div>
         <div class="w-full md:w-64 relative">
-            <i class="fa-solid fa-building absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+            <i class="fa-solid fa-building absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
             <select autocomplete="off" id="filtro-empresa" onchange="aplicarFiltros()"
-                class="w-full bg-slate-100 border border-slate-200 rounded-xl py-2.5 pl-11 pr-4 text-sm text-slate-800 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition appearance-none">
+                class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-9 pr-7 text-xs font-medium text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white transition appearance-none">
                 <option value="">-- Filtrar por Empresa --</option>
                 <?php
                 $empresas_filtro = $db->query("SELECT DISTINCT nombre FROM empresas ORDER BY nombre")->fetchAll(PDO::FETCH_COLUMN);
@@ -464,8 +464,7 @@ foreach ($fichas_raw as $f) {
                     <option value="<?= htmlspecialchars($emp_f) ?>"><?= htmlspecialchars($emp_f) ?></option>
                 <?php endforeach; ?>
             </select>
-            <i
-                class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs"></i>
+            <i class="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[10px]"></i>
         </div>
     </div>
 
@@ -592,19 +591,19 @@ foreach ($fichas_raw as $f) {
 
         <!-- 2. TABLA CUENTAS MICROSOFT 365 -->
     <?php elseif ($tab === 'm365'): ?>
-        <div class="glass-panel rounded-2xl overflow-hidden">
+        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="w-full text-left modern-table text-sm">
+                <table class="w-full text-left modern-table text-xs">
                     <thead>
                         <tr>
-                            <th class="py-3 px-3 text-center w-12">#</th>
-                            <th class="py-3 px-4">Usuario</th>
-                            <th class="py-3 px-4">Cargo</th>
-                            <th class="py-3 px-4">Empresa</th>
-                            <th class="py-3 px-4">Cuenta M365 (Correo)</th>
-                            <th class="py-3 px-4">Contraseña</th>
-                            <th class="py-3 px-4 text-center">Estado</th>
-                            <th class="py-3 px-4 text-center">Acciones</th>
+                            <th class="py-3 px-3 text-center w-12 font-semibold text-slate-600">#</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Usuario</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Cargo</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Empresa</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Cuenta M365 (Correo)</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Contraseña</th>
+                            <th class="py-3 px-4 text-center font-semibold text-slate-600">Estado</th>
+                            <th class="py-3 px-4 text-center font-semibold text-slate-600">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -620,11 +619,11 @@ foreach ($fichas_raw as $f) {
                             foreach ($cuentas_m365 as $m365):
                                 // Clases de estado
                                 if ($m365['estado'] == 'Activa') {
-                                    $estado_badge = 'badge-success';
+                                    $estado_badge = 'badge-pill-success';
                                 } elseif ($m365['estado'] == 'Suspendida') {
-                                    $estado_badge = 'badge-pending';
+                                    $estado_badge = 'badge-pill-warning';
                                 } else {
-                                    $estado_badge = 'badge-danger';
+                                    $estado_badge = 'badge-pill-danger';
                                 }
                                 $empresaNombre = !empty($m365['empresa_nombre']) ? $m365['empresa_nombre'] : '';
                                 if (empty($empresaNombre) && !empty($m365['correo'])) {
@@ -646,41 +645,41 @@ foreach ($fichas_raw as $f) {
                                 $cargoNombre = !empty($m365['empleado_cargo']) ? $m365['empleado_cargo'] : (!empty($m365['empleado_depto']) ? $m365['empleado_depto'] : '-');
                                 $searchText = strtolower(str_replace(['á', 'é', 'í', 'ó', 'ú', 'ñ', 'Á', 'É', 'Í', 'Ó', 'Ú', 'Ñ'], ['a', 'e', 'i', 'o', 'u', 'n', 'a', 'e', 'i', 'o', 'u', 'n'], ($m365['correo'] ?? '') . ' ' . ($m365['empleado_nombre'] ?? '') . ' ' . $cargoNombre . ' ' . $empresaNombre . ' ' . ($m365['licencia_tipo'] ?? '')));
                                 ?>
-                                <tr class="item-fila hover:bg-cyan-50/60 cursor-pointer transition border-b border-slate-100 group"
+                                <tr class="item-fila hover:bg-blue-50/30 cursor-pointer transition border-b border-slate-100 group"
                                     data-empresa="<?= htmlspecialchars($empresaNombre) ?>"
                                     data-search-text="<?= htmlspecialchars($searchText) ?>"
                                     onclick='verDetalleM365(<?= json_encode($m365, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
                                     <!-- # Numeración -->
                                     <td
-                                        class="py-3 px-3 text-center text-xs font-mono font-bold text-slate-400 group-hover:text-cyan-600 num-cell">
+                                        class="py-3 px-3 text-center text-xs font-mono font-medium text-slate-400 group-hover:text-blue-600 num-cell">
                                         <?= $num_m365++ ?>
                                     </td>
                                     <!-- Usuario -->
-                                    <td class="py-3 px-4 text-xs font-semibold text-slate-800 group-hover:text-cyan-700 transition">
+                                    <td class="py-3 px-4 text-xs font-semibold text-slate-800 group-hover:text-blue-600 transition">
                                         <div class="flex items-center gap-2">
                                             <div
-                                                class="h-7 w-7 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs font-bold shrink-0">
-                                                <i class="fa-regular fa-user"></i>
+                                                class="h-7 w-7 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center text-xs font-bold shrink-0">
+                                                <i class="fa-regular fa-user text-[11px]"></i>
                                             </div>
                                             <span><?= htmlspecialchars(!empty($m365['empleado_nombre']) ? $m365['empleado_nombre'] : 'Sin Asignar') ?></span>
                                         </div>
                                     </td>
                                     <!-- Cargo -->
-                                    <td class="py-3 px-4 text-xs text-slate-700 font-medium">
+                                    <td class="py-3 px-4 text-xs text-slate-600 font-medium">
                                         <?= htmlspecialchars($cargoNombre) ?>
                                     </td>
                                     <!-- Empresa -->
                                     <td class="py-3 px-4 text-xs text-slate-600 font-medium">
                                         <span
-                                            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">
+                                            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-700 text-[11px]">
                                             <i class="fa-solid fa-building text-[10px] text-slate-400"></i>
                                             <?= htmlspecialchars($empresaNombre) ?>
                                         </span>
                                     </td>
                                     <!-- Cuenta M365 -->
                                     <td class="py-3 px-4 text-xs font-mono text-slate-700">
-                                        <span class="inline-flex items-center gap-1.5 text-cyan-600 font-semibold">
-                                            <i class="fa-solid fa-cloud text-xs text-cyan-500"></i>
+                                        <span class="inline-flex items-center gap-1.5 text-blue-600 font-semibold">
+                                            <i class="fa-solid fa-cloud text-xs text-blue-500"></i>
                                             <?= htmlspecialchars($m365['correo']) ?>
                                         </span>
                                     </td>
@@ -690,12 +689,12 @@ foreach ($fichas_raw as $f) {
                                                 <span class="password-text text-xs text-slate-400 font-mono"
                                                     data-password="<?= htmlspecialchars($m365['pass_plain']) ?>">••••••••</span>
                                                 <button onclick="event.stopPropagation(); togglePasswordInline(this)"
-                                                    class="text-slate-500 hover:text-cyan-600 text-xs transition"
+                                                    class="text-slate-400 hover:text-blue-600 text-xs transition p-1"
                                                     title="Revelar Contraseña">
                                                     <i class="fa-regular fa-eye"></i>
                                                 </button>
                                                 <button onclick="event.stopPropagation(); copyPasswordInline(this)"
-                                                    class="text-slate-500 hover:text-emerald-600 text-xs transition"
+                                                    class="text-slate-400 hover:text-emerald-600 text-xs transition p-1"
                                                     title="Copiar Contraseña">
                                                     <i class="fa-regular fa-copy"></i>
                                                 </button>
@@ -705,7 +704,7 @@ foreach ($fichas_raw as $f) {
                                         <?php endif; ?>
                                     </td>
                                     <td class="py-3 px-4 text-center">
-                                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold <?= $estado_badge ?>">
+                                        <span class="badge-pill <?= $estado_badge ?>">
                                             <?= $m365['estado'] ?>
                                         </span>
                                     </td>
@@ -714,13 +713,13 @@ foreach ($fichas_raw as $f) {
                                             <!-- Editar -->
                                             <button
                                                 onclick='event.stopPropagation(); abrirEditarM365(<?= json_encode($m365, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'
-                                                class="h-8 w-8 rounded-lg hover:bg-amber-50 flex items-center justify-center text-amber-500 hover:text-amber-600 transition"
+                                                class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition"
                                                 title="Editar">
                                                 <i class="fa-solid fa-pen text-xs"></i>
                                             </button>
                                             <!-- Eliminar -->
                                             <button type="button" onclick="event.stopPropagation(); confirmarEliminar('guardar.php?action=delete_m365&id=<?= $m365['id'] ?>', 'esta cuenta de Microsoft 365')"
-                                                class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-500 transition"
+                                                class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition"
                                                 title="Eliminar">
                                                 <i class="fa-regular fa-trash-can text-xs"></i>
                                             </button>
@@ -1446,29 +1445,7 @@ foreach ($fichas_raw as $f) {
                 </div>
             </div>
 
-            <!-- Credenciales Adicionales (AG y Gmail) -->
-            <div class="bg-cyan-50/50 p-4 rounded-2xl border border-cyan-200/60 space-y-3">
-                <h4 class="text-xs font-bold text-cyan-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <i class="fa-solid fa-shield-halved text-cyan-600"></i> Credenciales Adicionales (AG y Gmail)
-                </h4>
-                <div>
-                    <label class="text-xs font-semibold text-slate-600 block mb-1">Contraseña AG / Sistema</label>
-                    <input type="password" name="pass_ag" placeholder="Opcional"
-                        class="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3 text-xs text-slate-800 focus:outline-none focus:border-cyan-400">
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-xs font-semibold text-slate-600 block mb-1">Correo Gmail</label>
-                        <input type="email" name="correo_gmail" placeholder="usuario@gmail.com"
-                            class="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3 text-xs text-slate-800 focus:outline-none focus:border-cyan-400">
-                    </div>
-                    <div>
-                        <label class="text-xs font-semibold text-slate-600 block mb-1">Contraseña Gmail</label>
-                        <input type="password" name="pass_gmail" placeholder="Opcional"
-                            class="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3 text-xs text-slate-800 focus:outline-none focus:border-cyan-400">
-                    </div>
-                </div>
-            </div>
+
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
@@ -2270,43 +2247,6 @@ foreach ($fichas_raw as $f) {
                 </div>
             </div>
 
-            <!-- Accesos Adicionales (AG y Gmail) -->
-            <div id="dm3_sec_adicionales" class="bg-cyan-50/50 p-4 rounded-2xl border border-cyan-200/60 space-y-3">
-                <h4 class="text-xs font-bold text-cyan-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <i class="fa-solid fa-shield-halved text-cyan-600"></i> Credenciales Adicionales (AG y Gmail)
-                </h4>
-
-                <div>
-                    <span class="text-[11px] text-slate-400 block font-semibold">Contraseña AG / Sistema</span>
-                    <div class="flex items-center gap-2 mt-0.5">
-                        <input type="password" readonly id="dm3_pass_ag"
-                            class="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono w-full text-slate-800">
-                        <button type="button" onclick="toggleFieldPass('dm3_pass_ag', 'dm3_pass_ag_icon')"
-                            class="text-slate-500 hover:text-slate-800 text-xs px-2 py-1 rounded bg-slate-200 shrink-0">
-                            <i class="fa-solid fa-eye" id="dm3_pass_ag_icon"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-cyan-200/40">
-                    <div>
-                        <span class="text-[11px] text-slate-400 block font-semibold">Correo Gmail</span>
-                        <span class="font-mono text-xs text-slate-800 font-bold block mt-1 break-all"
-                            id="dm3_gmail_val">--</span>
-                    </div>
-                    <div>
-                        <span class="text-[11px] text-slate-400 block font-semibold">Contraseña Gmail</span>
-                        <div class="flex items-center gap-2 mt-0.5">
-                            <input type="password" readonly id="dm3_pass_gmail"
-                                class="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono w-full text-slate-800">
-                            <button type="button" onclick="toggleFieldPass('dm3_pass_gmail', 'dm3_pass_gmail_icon')"
-                                class="text-slate-500 hover:text-slate-800 text-xs px-2 py-1 rounded bg-slate-200 shrink-0">
-                                <i class="fa-solid fa-eye" id="dm3_pass_gmail_icon"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
         <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
             <button onclick="cerrarModal('modal-det-m365')"
@@ -2382,31 +2322,17 @@ foreach ($fichas_raw as $f) {
                         </select>
                     </div>
                 </div>
-            </div>
-
-            <!-- Accesos Adicionales (AG y Gmail) -->
-            <div class="bg-amber-50/50 p-4 rounded-2xl border border-amber-200/60 space-y-3">
-                <h4 class="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <i class="fa-solid fa-shield-halved text-amber-500"></i> Credenciales Adicionales (AG y Gmail)
-                </h4>
-
-                <div>
-                    <label class="text-xs font-semibold text-slate-600 block mb-1">Contraseña AG / Sistema</label>
-                    <input type="text" name="pass_ag" id="em3_pass_ag" placeholder="Ej: Vmaster#2026"
-                        class="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono text-slate-800 focus:outline-none focus:border-amber-500">
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-amber-200/40">
-                    <div>
-                        <label class="text-xs font-semibold text-slate-600 block mb-1">Correo Gmail</label>
-                        <input type="text" name="correo_gmail" id="em3_correo_gmail" placeholder="Ej: usuario@gmail.com"
-                            class="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono text-slate-800 focus:outline-none focus:border-amber-500">
-                    </div>
-                    <div>
-                        <label class="text-xs font-semibold text-slate-600 block mb-1">Contraseña Gmail</label>
-                        <input type="text" name="pass_gmail" id="em3_pass_gmail" placeholder="Ej: PassGmail#2026"
-                            class="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono text-slate-800 focus:outline-none focus:border-amber-500">
-                    </div>
+                <div class="pt-2">
+                    <label class="text-xs font-semibold text-slate-600 block mb-1">Colaborador Asignado</label>
+                    <select autocomplete="off" name="empleado_id" id="em3_empleado_id"
+                        class="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:border-amber-500">
+                        <option value="">-- Sin Asignar (Cuenta Compartida / Pool) --</option>
+                        <?php foreach ($empleados as $emp): ?>
+                            <option value="<?= $emp['id'] ?>">
+                                <?= htmlspecialchars($emp['nombre'] . (!empty($emp['cargo']) ? ' (' . $emp['cargo'] . ')' : '')) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
             </div>
 
@@ -2597,16 +2523,6 @@ foreach ($fichas_raw as $f) {
         document.getElementById('dm3_f_init').innerText = m3.fecha_inicializacion || '--';
         document.getElementById('dm3_f_pago').innerText = m3.fecha_proximo_pago || '--';
 
-        // Credenciales Adicionales (Pass AG, Correo Gmail, Pass Gmail)
-        document.getElementById('dm3_pass_ag').value = m3.pass_ag_plain || '';
-        document.getElementById('dm3_pass_ag').type = 'password';
-        document.getElementById('dm3_pass_ag_icon').className = 'fa-solid fa-eye';
-
-        document.getElementById('dm3_gmail_val').innerText = (m3.correo_gmail && m3.correo_gmail.trim() !== '') ? m3.correo_gmail : '-';
-        document.getElementById('dm3_pass_gmail').value = m3.pass_gmail_plain || '';
-        document.getElementById('dm3_pass_gmail').type = 'password';
-        document.getElementById('dm3_pass_gmail_icon').className = 'fa-solid fa-eye';
-
         // Equipos asignados
         const secEquipo = document.getElementById('dm3_sec_equipo');
         const container = document.getElementById('dm3_equipos_container');
@@ -2663,15 +2579,12 @@ foreach ($fichas_raw as $f) {
         document.getElementById('em3_id').value = m3.id || '';
         document.getElementById('em3_subtitulo').innerText = (m3.empleado_nombre || 'Cuenta Compartida') + ' · ' + (m3.correo || '');
         document.getElementById('em3_correo').value = m3.correo || '';
+        document.getElementById('em3_empleado_id').value = m3.empleado_id || '';
         document.getElementById('em3_pass').value = '';
         document.getElementById('em3_licencia').value = m3.licencia_tipo || '';
         document.getElementById('em3_estado').value = m3.estado || 'Activa';
         document.getElementById('em3_f_init').value = m3.fecha_inicializacion || '2026-01-27';
         document.getElementById('em3_ciclo').value = m3.ciclo_facturacion || 'Mensual';
-
-        document.getElementById('em3_pass_ag').value = m3.pass_ag_plain || '';
-        document.getElementById('em3_correo_gmail').value = m3.correo_gmail || '';
-        document.getElementById('em3_pass_gmail').value = m3.pass_gmail_plain || '';
 
         abrirModal('modal-edit-m365');
     }
