@@ -1304,10 +1304,6 @@ require_once __DIR__ . '/../../includes/header.php';
                         <option value="Administración / Gerencia">Administración / Gerencia</option>
                         <option value="Otra">Otra</option>
                     </select>
-
-                    <button onclick="abrirModalWifi()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold text-xs shadow-md shadow-indigo-500/20 transition flex items-center gap-2">
-                        <i class="fa-solid fa-plus-circle"></i> + Nueva Red Wi-Fi
-                    </button>
                 </div>
             </div>
 
