@@ -54,6 +54,13 @@ $menu_sections = [
                 'icono'  => 'fa-solid fa-file-signature',
                 'active' => (strpos($uri, '/entregas/') !== false)
             ],
+            'impresoras' => [
+                'titulo' => 'Impresoras por Sucursal',
+                'label'  => 'Impresoras',
+                'url'    => BASE_URL . 'modules/impresoras/index.php',
+                'icono'  => 'fa-solid fa-print',
+                'active' => (strpos($uri, '/impresoras/') !== false)
+            ],
         ]
     ],
     [

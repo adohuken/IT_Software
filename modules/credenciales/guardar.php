@@ -742,6 +742,86 @@ try {
             header('Location: ' . $redirectUrl);
             exit;
         }
+
+        // ==========================================
+        // 9. GUARDAR / EDITAR TENANT CLOUD
+        // ==========================================
+        if ($action === 'save_tenant') {
+            $tenant_id         = !empty($_POST['tenant_id']) ? (int)$_POST['tenant_id'] : null;
+            $empresa_id        = !empty($_POST['empresa_id']) ? (int)$_POST['empresa_id'] : null;
+            $nombre_tenant     = trim($_POST['nombre_tenant'] ?? '');
+            $dominio_principal = trim($_POST['dominio_principal'] ?? '');
+            $correo            = trim($_POST['correo'] ?? '');
+            $password_plano    = trim($_POST['password'] ?? '');
+            $tenant_id_cloud   = trim($_POST['tenant_id_cloud'] ?? '');
+            $url_portal        = trim($_POST['url_portal'] ?? 'https://admin.microsoft.com');
+            $descripcion       = trim($_POST['descripcion'] ?? '');
+            $estado            = $_POST['estado'] ?? 'Activo';
+
+            if (empty($nombre_tenant) || empty($correo)) {
+                $_SESSION['flash_error'] = "El Nombre del Tenant y el Correo Administrador son obligatorios.";
+                header('Location: index.php?tab=tenants');
+                exit;
+            }
+
+            if ($tenant_id) {
+                // Editar Tenant
+                if (!empty($password_plano)) {
+                    $passCifrado = Security::encrypt($password_plano);
+                    $stmt = $db->prepare("
+                        UPDATE tenants SET 
+                            empresa_id = ?, nombre_tenant = ?, dominio_principal = ?,
+                            correo = ?, password_cifrado = ?, tenant_id_cloud = ?,
+                            url_portal = ?, descripcion = ?, estado = ?
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([
+                        $empresa_id, $nombre_tenant, $dominio_principal ?: null,
+                        $correo, $passCifrado, $tenant_id_cloud ?: null,
+                        $url_portal ?: 'https://admin.microsoft.com', $descripcion ?: null, $estado,
+                        $tenant_id
+                    ]);
+                } else {
+                    $stmt = $db->prepare("
+                        UPDATE tenants SET 
+                            empresa_id = ?, nombre_tenant = ?, dominio_principal = ?,
+                            correo = ?, tenant_id_cloud = ?,
+                            url_portal = ?, descripcion = ?, estado = ?
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([
+                        $empresa_id, $nombre_tenant, $dominio_principal ?: null,
+                        $correo, $tenant_id_cloud ?: null,
+                        $url_portal ?: 'https://admin.microsoft.com', $descripcion ?: null, $estado,
+                        $tenant_id
+                    ]);
+                }
+                $_SESSION['flash_success'] = "Tenant <b>" . htmlspecialchars($nombre_tenant) . "</b> actualizado correctamente.";
+            } else {
+                // Nuevo Tenant
+                if (empty($password_plano)) {
+                    $_SESSION['flash_error'] = "La contraseña del Tenant es requerida para el registro inicial.";
+                    header('Location: index.php?tab=tenants');
+                    exit;
+                }
+                $passCifrado = Security::encrypt($password_plano);
+                $stmt = $db->prepare("
+                    INSERT INTO tenants (
+                        empresa_id, nombre_tenant, dominio_principal, correo,
+                        password_cifrado, tenant_id_cloud, url_portal, descripcion, estado
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $empresa_id, $nombre_tenant, $dominio_principal ?: null, $correo,
+                    $passCifrado, $tenant_id_cloud ?: null, $url_portal ?: 'https://admin.microsoft.com',
+                    $descripcion ?: null, $estado
+                ]);
+                $_SESSION['flash_success'] = "Tenant <b>" . htmlspecialchars($nombre_tenant) . "</b> registrado exitosamente.";
+            }
+
+            header('Location: index.php?tab=tenants');
+            exit;
+        }
     } else {
         // Acciones GET (Eliminar)
 
@@ -769,6 +849,16 @@ try {
             $stmt = $db->prepare("DELETE FROM cuentas_m365 WHERE id = ?");
             $stmt->execute([$id]);
             header('Location: index.php?tab=m365');
+            exit;
+        }
+
+        // 4. Eliminar Tenant
+        if ($action === 'delete_tenant') {
+            $id = (int) $_GET['id'];
+            $stmt = $db->prepare("DELETE FROM tenants WHERE id = ?");
+            $stmt->execute([$id]);
+            $_SESSION['flash_success'] = "Tenant eliminado correctamente.";
+            header('Location: index.php?tab=tenants');
             exit;
         }
     }

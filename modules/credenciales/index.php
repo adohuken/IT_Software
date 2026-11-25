@@ -30,6 +30,19 @@ $empleados = $db->query("SELECT id, nombre, cargo FROM empleados WHERE estado = 
 $sucursales = $db->query("SELECT s.id, CONCAT(e.nombre, ' - ', s.nombre) as nombre FROM sucursales s JOIN empresas e ON s.empresa_id = e.id ORDER BY e.nombre, s.nombre")->fetchAll();
 $empresas_list = $db->query("SELECT id, nombre FROM empresas ORDER BY nombre")->fetchAll();
 
+// Cargar Tenants Cloud
+$tenants_raw = $db->query("
+    SELECT t.*, e.nombre AS empresa_nombre 
+    FROM tenants t 
+    LEFT JOIN empresas e ON t.empresa_id = e.id 
+    ORDER BY e.nombre ASC, t.nombre_tenant ASC
+")->fetchAll(PDO::FETCH_ASSOC);
+$tenants = [];
+foreach ($tenants_raw as $t) {
+    $t['pass_plain'] = !empty($t['password_cifrado']) ? Security::decrypt($t['password_cifrado']) : '';
+    $tenants[] = $t;
+}
+
 // Cargar listas correspondientes con joins para obtener el nombre de la empresa
 $cred_equipos_raw = $db->query("
     SELECT 
@@ -415,6 +428,11 @@ foreach ($fichas_raw as $f) {
                     class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition duration-150">
                     <i class="fa-solid fa-plus text-xs"></i> Nueva Cuenta M365
                 </button>
+            <?php elseif ($tab === 'tenants'): ?>
+                <button onclick="abrirModalTenant()"
+                    class="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition duration-150">
+                    <i class="fa-solid fa-plus text-xs"></i> Nuevo Tenant
+                </button>
             <?php else: ?>
                 <a href="../empleados/index.php"
                     class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition duration-150">
@@ -433,6 +451,10 @@ foreach ($fichas_raw as $f) {
         <a href="../empleados/index.php"
             class="px-4 py-2.5 text-xs font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition flex items-center gap-2">
             <i class="fa-solid fa-id-card text-xs text-slate-400"></i> Fichas 360° en Colaboradores
+        </a>
+        <a href="?tab=tenants"
+            class="px-4 py-2.5 text-xs font-semibold border-b-2 transition flex items-center gap-2 <?= ($tab === 'tenants') ? 'border-violet-600 text-violet-600' : 'border-transparent text-slate-500 hover:text-slate-800' ?>">
+            <i class="fa-solid fa-building-columns text-xs <?= ($tab === 'tenants') ? 'text-violet-600' : 'text-slate-400' ?>"></i> Tenants Cloud
         </a>
     </div>
 
@@ -736,7 +758,165 @@ foreach ($fichas_raw as $f) {
         </div>
     <?php endif; ?>
 
-    <!-- 4. TABLA GMAIL / CREDENCIALES POR COLABORADOR -->
+    <!-- 4. TABLA TENANTS CLOUD -->
+    <?php if ($tab === 'tenants'): ?>
+        <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left modern-table text-xs">
+                    <thead>
+                        <tr>
+                            <th class="py-3 px-3 text-center w-12 font-semibold text-slate-600">#</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Empresa</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Nombre Tenant / Dominio</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600"><i class="fa-solid fa-envelope text-violet-500 mr-1"></i>Correo Admin</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Contraseña</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Portal / Tenant ID</th>
+                            <th class="py-3 px-4 font-semibold text-slate-600">Descripción</th>
+                            <th class="py-3 px-4 text-center font-semibold text-slate-600">Estado</th>
+                            <th class="py-3 px-4 text-center font-semibold text-slate-600">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($tenants)): ?>
+                            <tr>
+                                <td colspan="9" class="text-center py-16 text-slate-400">
+                                    <div class="flex flex-col items-center gap-3">
+                                        <div class="h-16 w-16 rounded-3xl bg-violet-50 border border-violet-200 flex items-center justify-center">
+                                            <i class="fa-solid fa-building-columns text-2xl text-violet-300"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-bold text-slate-500 text-sm">No hay Tenants registrados todavía</p>
+                                            <p class="text-xs text-slate-400 mt-1">Registra los tenants cloud (Microsoft 365, Google Workspace, etc.) de cada empresa.</p>
+                                        </div>
+                                        <button onclick="abrirModalTenant()"
+                                            class="mt-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition">
+                                            <i class="fa-solid fa-plus text-xs"></i> Registrar Primer Tenant
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php else: ?>
+                            <?php
+                            $num_tenant = 1;
+                            foreach ($tenants as $tenant):
+                                // Badge estado
+                                if ($tenant['estado'] == 'Activo') {
+                                    $t_badge = 'badge-pill-success';
+                                } elseif ($tenant['estado'] == 'En Configuración' || $tenant['estado'] == 'Mantenimiento') {
+                                    $t_badge = 'badge-pill-warning';
+                                } else {
+                                    $t_badge = 'badge-pill-danger';
+                                }
+                                $t_empresa = $tenant['empresa_nombre'] ?? 'Sin Empresa';
+                                $searchTextT = strtolower(($tenant['nombre_tenant'] ?? '') . ' ' . ($tenant['dominio_principal'] ?? '') . ' ' . ($tenant['correo'] ?? '') . ' ' . $t_empresa . ' ' . ($tenant['descripcion'] ?? '') . ' ' . ($tenant['tenant_id_cloud'] ?? ''));
+                            ?>
+                                <tr class="item-fila hover:bg-violet-50/30 cursor-pointer transition border-b border-slate-100 group"
+                                    data-empresa="<?= htmlspecialchars($t_empresa) ?>"
+                                    data-search-text="<?= htmlspecialchars($searchTextT) ?>"
+                                    onclick='abrirEditarTenant(<?= json_encode($tenant, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>
+                                    <!-- # -->
+                                    <td class="py-3 px-3 text-center text-xs font-mono font-medium text-slate-400 group-hover:text-violet-600 num-cell">
+                                        <?= $num_tenant++ ?>
+                                    </td>
+                                    <!-- Empresa -->
+                                    <td class="py-3 px-4 text-xs text-slate-600 font-medium">
+                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-700 text-[11px]">
+                                            <i class="fa-solid fa-building text-[10px] text-slate-400"></i>
+                                            <?= htmlspecialchars($t_empresa) ?>
+                                        </span>
+                                    </td>
+                                    <!-- Nombre Tenant / Dominio -->
+                                    <td class="py-3 px-4">
+                                        <div class="flex items-center gap-2">
+                                            <div class="h-7 w-7 rounded-lg bg-violet-50 text-violet-600 border border-violet-200 flex items-center justify-center text-xs font-bold shrink-0">
+                                                <i class="fa-solid fa-building-columns text-[11px]"></i>
+                                            </div>
+                                            <div>
+                                                <span class="font-bold text-slate-800 text-xs group-hover:text-violet-600 transition"><?= htmlspecialchars($tenant['nombre_tenant']) ?></span>
+                                                <?php if (!empty($tenant['dominio_principal'])): ?>
+                                                    <div class="text-[10px] text-slate-400 font-mono"><?= htmlspecialchars($tenant['dominio_principal']) ?></div>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <!-- Correo Admin -->
+                                    <td class="py-3 px-4 text-xs font-mono text-slate-700">
+                                        <span class="inline-flex items-center gap-1.5 text-violet-600 font-semibold">
+                                            <i class="fa-solid fa-envelope text-xs text-violet-500"></i>
+                                            <?= htmlspecialchars($tenant['correo']) ?>
+                                        </span>
+                                    </td>
+                                    <!-- Contraseña -->
+                                    <td class="py-3 px-4" onclick="event.stopPropagation();">
+                                        <?php if (!empty($tenant['pass_plain'])): ?>
+                                            <div class="flex items-center gap-2">
+                                                <span class="password-text text-xs text-slate-400 font-mono"
+                                                    data-password="<?= htmlspecialchars($tenant['pass_plain']) ?>">••••••••</span>
+                                                <button onclick="event.stopPropagation(); togglePasswordInline(this)"
+                                                    class="text-slate-400 hover:text-violet-600 text-xs transition p-1"
+                                                    title="Revelar Contraseña">
+                                                    <i class="fa-regular fa-eye"></i>
+                                                </button>
+                                                <button onclick="event.stopPropagation(); copyPasswordInline(this)"
+                                                    class="text-slate-400 hover:text-emerald-600 text-xs transition p-1"
+                                                    title="Copiar Contraseña">
+                                                    <i class="fa-regular fa-copy"></i>
+                                                </button>
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="text-xs text-slate-400 font-normal">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <!-- Portal / Tenant ID -->
+                                    <td class="py-3 px-4 text-xs" onclick="event.stopPropagation();">
+                                        <?php if (!empty($tenant['url_portal'])): ?>
+                                            <a href="<?= htmlspecialchars($tenant['url_portal']) ?>" target="_blank"
+                                                class="text-blue-600 hover:text-blue-800 hover:underline font-medium inline-flex items-center gap-1">
+                                                <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i> Portal
+                                            </a>
+                                        <?php endif; ?>
+                                        <?php if (!empty($tenant['tenant_id_cloud'])): ?>
+                                            <div class="text-[10px] text-slate-400 font-mono mt-0.5" title="Tenant ID"><?= htmlspecialchars($tenant['tenant_id_cloud']) ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <!-- Descripción -->
+                                    <td class="py-3 px-4 text-xs text-slate-500 max-w-[180px]">
+                                        <span class="line-clamp-2"><?= htmlspecialchars($tenant['descripcion'] ?? '-') ?></span>
+                                    </td>
+                                    <!-- Estado -->
+                                    <td class="py-3 px-4 text-center">
+                                        <span class="badge-pill <?= $t_badge ?>">
+                                            <?= $tenant['estado'] ?>
+                                        </span>
+                                    </td>
+                                    <!-- Acciones -->
+                                    <td class="py-3 px-4 text-center">
+                                        <div class="flex items-center justify-center gap-1" onclick="event.stopPropagation();">
+                                            <button
+                                                onclick='event.stopPropagation(); abrirEditarTenant(<?= json_encode($tenant, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'
+                                                class="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition"
+                                                title="Editar">
+                                                <i class="fa-solid fa-pen text-xs"></i>
+                                            </button>
+                                            <button type="button" onclick="event.stopPropagation(); confirmarEliminar('guardar.php?action=delete_tenant&id=<?= $tenant['id'] ?>', 'este tenant')"
+                                                class="h-8 w-8 rounded-lg hover:bg-rose-50 flex items-center justify-center text-slate-400 hover:text-rose-600 transition"
+                                                title="Eliminar">
+                                                <i class="fa-regular fa-trash-can text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+            <!-- Paginación -->
+            <div id="paginacionTenants"></div>
+        </div>
+    <?php endif; ?>
+
+    <!-- 5. TABLA GMAIL / CREDENCIALES POR COLABORADOR -->
     <?php if ($tab === 'gmail'): ?>
         <div class="glass-panel rounded-2xl overflow-hidden">
             <div class="overflow-x-auto">
@@ -3106,6 +3286,190 @@ foreach ($fichas_raw as $f) {
         </div>
     </div>
 </div>
+
+<!-- Modal Crear/Editar Tenant -->
+<div id="modal-tenant"
+    class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
+    <div class="bg-white border border-slate-200 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-fade-in">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-violet-50 to-white">
+            <div class="flex items-center gap-3">
+                <div class="h-10 w-10 rounded-2xl bg-violet-100 border border-violet-200 text-violet-700 flex items-center justify-center text-lg font-bold">
+                    <i class="fa-solid fa-building-columns"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-slate-800 text-sm" id="tenant_modal_title">Nuevo Tenant Cloud</h3>
+                    <p class="text-xs text-slate-500">Registra el acceso administrativo al tenant.</p>
+                </div>
+            </div>
+            <button onclick="cerrarModalTenant()"
+                class="h-8 w-8 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center transition">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- Form -->
+        <form action="guardar.php?action=save_tenant" method="POST" class="p-5 space-y-4">
+            <input type="hidden" name="tenant_id" id="tenant_id" value="">
+
+            <!-- Empresa -->
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1.5">Empresa</label>
+                <select name="empresa_id" id="tenant_empresa_id"
+                    class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition">
+                    <option value="">-- Sin Empresa --</option>
+                    <?php foreach ($empresas_list as $emp): ?>
+                        <option value="<?= $emp['id'] ?>"><?= htmlspecialchars($emp['nombre']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <!-- Nombre Tenant + Dominio -->
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1.5">Nombre Tenant <span class="text-rose-500">*</span></label>
+                    <input type="text" name="nombre_tenant" id="tenant_nombre" required
+                        placeholder="Ej: Suministros Integrales"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1.5">Dominio Principal</label>
+                    <input type="text" name="dominio_principal" id="tenant_dominio"
+                        placeholder="Ej: suministros.onmicrosoft.com"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition">
+                </div>
+            </div>
+
+            <!-- Correo + Contraseña -->
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1.5"><i class="fa-solid fa-envelope text-violet-500 mr-1"></i>Correo Admin <span class="text-rose-500">*</span></label>
+                    <input type="email" name="correo" id="tenant_correo" required
+                        placeholder="admin@empresa.com"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1.5"><i class="fa-solid fa-lock text-amber-500 mr-1"></i>Contraseña</label>
+                    <div class="relative">
+                        <input type="password" name="password" id="tenant_password"
+                            placeholder="Contraseña del tenant"
+                            class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 pr-10 text-xs font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition">
+                        <button type="button" onclick="toggleTenantPass()"
+                            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition">
+                            <i class="fa-regular fa-eye text-xs" id="tenant_pass_icon"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tenant ID Cloud + URL Portal -->
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1.5">Tenant ID Cloud</label>
+                    <input type="text" name="tenant_id_cloud" id="tenant_id_cloud_input"
+                        placeholder="Ej: xxxxxxxx-xxxx-xxxx-xxxx"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-mono font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1.5">URL Portal Admin</label>
+                    <input type="url" name="url_portal" id="tenant_url_portal"
+                        placeholder="https://admin.microsoft.com"
+                        value="https://admin.microsoft.com"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition">
+                </div>
+            </div>
+
+            <!-- Descripción -->
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1.5">Descripción</label>
+                <textarea name="descripcion" id="tenant_descripcion" rows="3"
+                    placeholder="Notas sobre este tenant, servicios activos, etc."
+                    class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition resize-none"></textarea>
+            </div>
+
+            <!-- Estado -->
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1.5">Estado</label>
+                <select name="estado" id="tenant_estado"
+                    class="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3 text-xs font-medium text-slate-800 focus:outline-none focus:border-violet-500 focus:bg-white transition">
+                    <option value="Activo">Activo</option>
+                    <option value="En Configuración">En Configuración</option>
+                    <option value="Mantenimiento">Mantenimiento</option>
+                    <option value="Inactivo">Inactivo</option>
+                </select>
+            </div>
+
+            <!-- Footer Buttons -->
+            <div class="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+                <button type="button" onclick="cerrarModalTenant()"
+                    class="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition">
+                    Cancelar
+                </button>
+                <button type="submit"
+                    class="px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-md transition flex items-center gap-2">
+                    <i class="fa-solid fa-floppy-disk"></i> Guardar Tenant
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // ===== FUNCIONES PARA TENANTS =====
+    function abrirModalTenant() {
+        document.getElementById('tenant_modal_title').textContent = 'Nuevo Tenant Cloud';
+        document.getElementById('tenant_id').value = '';
+        document.getElementById('tenant_empresa_id').value = '';
+        document.getElementById('tenant_nombre').value = '';
+        document.getElementById('tenant_dominio').value = '';
+        document.getElementById('tenant_correo').value = '';
+        document.getElementById('tenant_password').value = '';
+        document.getElementById('tenant_password').required = true;
+        document.getElementById('tenant_id_cloud_input').value = '';
+        document.getElementById('tenant_url_portal').value = 'https://admin.microsoft.com';
+        document.getElementById('tenant_descripcion').value = '';
+        document.getElementById('tenant_estado').value = 'Activo';
+        document.getElementById('modal-tenant').classList.remove('hidden');
+    }
+
+    function abrirEditarTenant(t) {
+        document.getElementById('tenant_modal_title').textContent = 'Editar Tenant: ' + t.nombre_tenant;
+        document.getElementById('tenant_id').value = t.id;
+        document.getElementById('tenant_empresa_id').value = t.empresa_id || '';
+        document.getElementById('tenant_nombre').value = t.nombre_tenant || '';
+        document.getElementById('tenant_dominio').value = t.dominio_principal || '';
+        document.getElementById('tenant_correo').value = t.correo || '';
+        document.getElementById('tenant_password').value = '';
+        document.getElementById('tenant_password').required = false;
+        document.getElementById('tenant_password').placeholder = 'Dejar vacío para mantener actual';
+        document.getElementById('tenant_id_cloud_input').value = t.tenant_id_cloud || '';
+        document.getElementById('tenant_url_portal').value = t.url_portal || 'https://admin.microsoft.com';
+        document.getElementById('tenant_descripcion').value = t.descripcion || '';
+        document.getElementById('tenant_estado').value = t.estado || 'Activo';
+        document.getElementById('modal-tenant').classList.remove('hidden');
+    }
+
+    function cerrarModalTenant() {
+        document.getElementById('modal-tenant').classList.add('hidden');
+    }
+
+    function toggleTenantPass() {
+        const inp = document.getElementById('tenant_password');
+        const icon = document.getElementById('tenant_pass_icon');
+        if (inp.type === 'password') {
+            inp.type = 'text';
+            icon.className = 'fa-regular fa-eye-slash text-xs';
+        } else {
+            inp.type = 'password';
+            icon.className = 'fa-regular fa-eye text-xs';
+        }
+    }
+
+    // Cerrar modal con Escape
+    document.getElementById('modal-tenant').addEventListener('click', function(e) {
+        if (e.target === this) cerrarModalTenant();
+    });
+</script>
 
 <?php
 require_once __DIR__ . '/../../includes/footer.php';
