@@ -1,0 +1,1655 @@
+================================================================================
+AUDITORIA TECNICA INTEGRAL, SEGURIDAD, BASE DE DATOS Y ARQUITECTURA
+SISTEMA: Gestion IT (IT_Software)
+FECHA: 25 de Noviembre de 2026
+ALCANCE: 100% de archivos del repositorio, modulos funcionales, base de datos,
+         cifrado, scripts de despliegue, archivos huerfanos y riesgos criticos.
+================================================================================
+
+
+================================================================================
+SECCION 1: Config & Security Auditor
+================================================================================
+
+# Security & Configuration Audit Report: `c:\xampp\htdocs\IT_Software`
+
+## Executive Summary
+- **Critical Findings:**
+  1. **Hardcoded Production DB Credentials** in `config/conexion.php` (lines 38–43).
+  2. **Hardcoded 256-bit AES Encryption Key** in `config/security.php` (line 10) — **NOT environment-based** — combined with unauthenticated `AES-256-CBC` (no HMAC/AEAD).
+  3. **Unauthenticated Destructive Database Wipe/Reset Script** at `config/setup_db.php` accessible over HTTP with hardcoded default admin/service passwords and a broken `require` to missing `config/datos_excel.php`.
+  4. **Session Fixation & Missing CSRF / Rate Limiting** in `login.php`, plus **Logout CSRF** in `logout.php`.
+  5. **Sensitive Files Not Excluded** in `.gitignore` (`config/conexion.php`, `config/security.php`, `.env`, `.xlsx` files, SQL dumps).
+
+---
+
+## 1. `c:\xampp\htdocs\IT_Software\config\conexion.php`
+- **Full Path:** `c:\xampp\htdocs\IT_Software\config\conexion.php`
+- **Line Count:** 126 lines
+- **Purpose:** Sets PHP timezone to `America/Managua`, detects local (XAMPP) vs. remote (InfinityFree) environment using `$_SERVER['HTTP_HOST']`, defines DB (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`) and `BASE_URL` constants, and implements the `Database` singleton class (`Database::getConexion()`) using PDO with fallback across candidate InfinityFree database names and an HTML error page on failure.
+- **Security Issues:**
+  - **Hardcoded Credentials:** Production InfinityFree database credentials are hardcoded on lines 38–43 (`DB_HOST = 'sql103.infinityfree.com'`, `DB_USER = 'if0_43167470'`, `DB_PASS = 'q2WuKNEtrmdR8b'`, `DB_NAME = 'if0_43167470_gestion_it'`), and local credentials on lines 28–31 (`root` / `''`).
+  - **Weak Encryption:** N/A (note: no TLS/SSL options configured for remote PDO MySQL connection).
+  - **SQL Injection:** Queries are not executed here (`PDO::ATTR_EMULATE_PREPARES => false` on line 58 is good). `DB_HOST`, `DB_PORT`, and `$dbname` are interpolated into the DSN on line 83 from constants/hardcoded candidates.
+  - **XSS:** Error HTML escapes `DB_HOST`, `DB_USER`, `DB_NAME`, and `$ultimo_error->getMessage()` with `htmlspecialchars()` (lines 105–107, 110), though without `ENT_QUOTES, 'UTF-8'`.
+  - **CSRF:** N/A.
+  - **Host Header Spoofing (`IS_LOCAL` Bypass):** Lines 11–20 derive `IS_LOCAL` from client-controlled `$_SERVER['HTTP_HOST']` using `strpos($http_host, 'localhost') !== false` (which matches substrings like `localhost.attacker.com`) and `empty($http_host)`. Spoofing `Host` can switch constants (`BASE_URL`, DB credentials) in misconfigured virtual hosts.
+  - **Information Disclosure:** Lines 98–121 leak `DB_HOST`, `DB_USER`, `DB_NAME`, and raw PDO exception messages to end users on connection failure.
+- **Best Practices Violations:**
+  - Mixes environment config, database connection singleton, and HTML error rendering (`die($html)`) in one file.
+  - Calling `die($html)` inside `Database::getConexion()` prevents callers (such as `login.php` `catch` block or JSON API endpoints) from handling connection failures cleanly.
+  - Hardcodes user-specific InfinityFree fallback DB names (lines 64–76).
+  - Loose comparison `$e->getCode() != 1049` on line 90 (`PDOException::getCode()` commonly returns SQLSTATE strings).
+- **Missing Validations:**
+  - No `HTTP_HOST` allowlist validation or CLI SAPI check (`PHP_SAPI === 'cli'`).
+  - No check for `pdo_mysql` extension availability or connection timeout (`PDO::ATTR_TIMEOUT`).
+- **Error Handling Quality:** Poor for production. Catches `PDOException` in the retry loop, then terminates execution with `die($html)` exposing internal DB host/username/database/error details instead of logging via `error_log()` and throwing/returning a generic error.
+- **Session Management Issues:** None.
+
+---
+
+## 2. `c:\xampp\htdocs\IT_Software\config\security.php`
+- **Full Path:** `c:\xampp\htdocs\IT_Software\config\security.php`
+- **Line Count:** 73 lines
+- **Purpose:** Defines the `Security` utility class with static `encrypt($data)` and `decrypt($encryptedData)` methods using OpenSSL `aes-256-cbc` and a prepended random IV encoded in Base64.
+- **Encryption Key Management Check:** **HARDCODED** on line 10 (`private static $encryption_key = 'b23a9d9431ec5e963bc1843ad8ea607f2df47bfd62054c30c8da26e2e5e1a3d9';`). It is **not** environment-based, despite the warning comment on line 9.
+- **Security Issues:**
+  - **Hardcoded Credentials/Key:** The 256-bit AES symmetric key is committed directly in source code (`config/security.php` is not ignored by `.gitignore`), allowing anyone with source/backup access to decrypt all stored passwords and PINs.
+  - **Weak Encryption / Missing Integrity:** Uses `aes-256-cbc` (lines 23, 49) **without** an HMAC (Encrypt-then-MAC) or authenticated cipher (`aes-256-gcm`). This leaves ciphertexts vulnerable to undetected tampering, IV bit-flipping, and potential padding-oracle behavior.
+  - **Weak Randomness Check:** Line 28 calls `openssl_random_pseudo_bytes($iv_length)` without verifying the `$crypto_strong` flag (`random_bytes()` is preferred).
+  - **SQL Injection / XSS / CSRF:** N/A.
+- **Best Practices Violations:**
+  - No key versioning or rotation mechanism.
+  - Missing strict scalar/return type hints on `encrypt()` and `decrypt()`.
+  - Re-computes `hex2bin(self::$encryption_key)` on every invocation without checking for `false`.
+  - Returns `''` silently on decryption failure (line 71), making failure indistinguishable from empty data.
+- **Missing Validations:**
+  - Line 53 calls `base64_decode($encryptedData)` without `$strict = true` and without checking for `false` return before `strlen($raw_data)`.
+  - Line 45 uses `empty($encryptedData)` (treats `'0'` as empty).
+  - Line 58 checks `strlen($raw_data) <= $iv_length`, whereas valid AES-CBC PKCS#7 ciphertext requires at least `iv_length + 16` bytes and block-size alignment.
+  - Does not verify `openssl` extension availability or check if `openssl_encrypt()` (line 31) returns `false`.
+- **Error Handling Quality:** Minimal. Silently returns `''` on invalid input, short payload, or `openssl_decrypt()` failure without logging or throwing exceptions; fails to guard against `openssl_encrypt() === false` or `base64_decode() === false`.
+- **Session Management Issues:** None.
+
+---
+
+## 3. `c:\xampp\htdocs\IT_Software\config\helpers.php`
+- **Full Path:** `c:\xampp\htdocs\IT_Software\config\helpers.php`
+- **Line Count:** 46 lines
+- **Purpose:** Shared helper module defining `calcularProximoPago(string $fechaInit, string $ciclo): string` to compute the next `'Mensual'` or `'Anual'` renewal/payment date in `Y-m-d` format.
+- **Security Issues:**
+  - **Hardcoded Credentials / Weak Encryption / SQL Injection / XSS / CSRF:** None.
+- **Best Practices Violations:**
+  - Mixes `DateTime` with legacy `strtotime()` / `date("t", ...)` calls (lines 32, 41) instead of `$hoy->format('t')` / `$proximo->format('t')`.
+  - Passes string values from `format("Y")` / `format("m")` into `DateTime::setDate()` (lines 22, 36, 42) relying on non-strict type coercion.
+  - Inconsistent leap-year handling: for `'Anual'` (line 22), a Feb 29 start date rolls to Mar 1 in non-leap years, whereas `'Mensual'` clamps to the last day of the month.
+  - Any `$ciclo` other than exact `'Anual'` silently falls through to monthly logic.
+- **Missing Validations:**
+  - No validation of `$fechaInit` format before `new DateTime($fechaInit)` (line 14), which throws an uncaught `Exception` on malformed input.
+  - No allowlist validation for `$ciclo` (`'Mensual'` / `'Anual'`).
+- **Error Handling Quality:** No `try/catch` or input validation; relies on callers to handle invalid-date exceptions.
+- **Session Management Issues:** None.
+
+---
+
+## 4. `c:\xampp\htdocs\IT_Software\config\setup_db.php`
+- **Full Path:** `c:\xampp\htdocs\IT_Software\config\setup_db.php`
+- **Line Count:** 280 lines
+- **Purpose:** Database initialization and seeding script that connects to MySQL, executes `database/schema.sql`, truncates all application tables, creates IT users, imports employees/hardware/credentials/M365 accounts from `config/datos_excel.php`, inserts encrypted web credentials, and seeds sample IT tasks.
+- **Security Issues:**
+  - **Critical — Unauthenticated Destructive Endpoint:** Placed inside web-accessible `config/` with **no** authentication check, **no** CLI-only check (`PHP_SAPI === 'cli'`), **no** `IS_LOCAL` check, and **no** CSRF token. Any anonymous HTTP `GET` request to `/config/setup_db.php` executes `TRUNCATE TABLE` across 10 tables (lines 39–50), destroying data and resetting admin credentials.
+  - **Hardcoded Credentials:**
+    - Line 95: Hardcodes `'AdminIT2026!'` for all 4 IT accounts (`dmartinez@mastertec.com.ni`, `galeman@mastertec.com.ni`, `brivas@mastertec.com.ni`, `jcampos@mastertec.com.ni`).
+    - Line 143: Hardcodes fallback local PC password `'PassLocal2026!'`.
+    - Line 194: Hardcodes `'M365Admin2026!'` for `admin-m365@mastertec.com.ni`.
+    - Line 203: Hardcodes `'FortiCloudPass!'` for `it-support@mastertec.com.ni`.
+  - **Weak Encryption / Randomness:** Uses `Security::encrypt()` (AES-256-CBC with hardcoded key, no MAC); line 133 uses `rand(1000, 9999)` instead of `random_int()`.
+  - **SQL Injection:** Uses prepared statements for inserts; executes `database/schema.sql` via `$pdo_inicial->exec($sql_schema)` (line 31).
+  - **XSS:** Line 279 echoes `$e->getMessage()` unescaped into HTML (`echo "<br><b style='color:red;'>Error en inicialización: " . $e->getMessage() . "</b>";`).
+  - **CSRF:** Destructive state-changing operation runs on an unprotected `GET` request.
+- **Best Practices Violations:**
+  - **Broken Dependency:** Line 53 runs `require __DIR__ . '/datos_excel.php';`, but `config/datos_excel.php` does not exist in `config/`. Running the script truncates all 10 tables (lines 39–50) and then crashes with a fatal PHP `Error`!
+  - `credenciales_personales` (inserted on line 154) is omitted from the `TRUNCATE TABLE` block (lines 39–50).
+  - Prepares `$stmt_cp_ins` repeatedly inside the `foreach` loop (line 154).
+  - Uses the identical bcrypt hash `$pass_hash` for all 4 IT staff accounts (lines 95–99).
+  - No database transaction management for seeding.
+- **Missing Validations:**
+  - Missing `PHP_SAPI === 'cli'` / `IS_LOCAL` / admin session guard.
+  - Missing `file_exists()` check before `require __DIR__ . '/datos_excel.php'` (line 53).
+  - Missing key existence checks (`??`) on `$data` fields from `$excel_data` (lines 117–172).
+  - Line 132 catches generic `Exception` assuming duplicate serial number without checking SQLSTATE `23000`.
+- **Error Handling Quality:** Poor. Unescaped `$e->getMessage()` in HTML output (line 279), and `catch (Exception $e)` does not catch PHP `Error` / `CompileError` thrown by a missing `require` target (line 53).
+- **Session Management Issues:** No session initialization or authorization verification before executing privileged database operations.
+
+---
+
+## 5. `c:\xampp\htdocs\IT_Software\config\system_config.php`
+- **Full Path:** `c:\xampp\htdocs\IT_Software\config\system_config.php`
+- **Line Count:** 5 lines
+- **Purpose:** Returns a PHP associative array defining the system display name (`'system_name' => 'Gestión IT'`).
+- **Security Issues:**
+  - **Hardcoded Credentials / Weak Encryption / SQL Injection / XSS / CSRF:** None directly in this file.
+- **Best Practices Violations:**
+  - Stored in web-accessible `config/` without `.htaccess` protection (low direct risk for `system_name`, poor pattern for config files).
+- **Missing Validations:** None applicable for a static config array.
+- **Error Handling Quality:** N/A.
+- **Session Management Issues:** None.
+
+---
+
+## 6. `c:\xampp\htdocs\IT_Software\login.php`
+- **Full Path:** `c:\xampp\htdocs\IT_Software\login.php`
+- **Line Count:** 223 lines
+- **Purpose:** Displays the administrative login page and handles `POST` authentication against `equipo_it` using `password_verify()`, sets session user variables, and redirects authenticated users to `index.php`.
+- **Security Issues:**
+  - **CSRF:** Login `<form action="login.php" method="POST">` (line 181) lacks a CSRF token, enabling Login CSRF attacks.
+  - **Brute-Force Exposure:** No rate limiting, failed-attempt tracking, progressive delay, or account lockout on `POST` authentication (lines 25–54).
+  - **Session Fixation:** Successful login (lines 38–46) sets `$_SESSION['user_id']`, `$_SESSION['user_nombre']`, `$_SESSION['user_email']`, and `$_SESSION['user_rol']` without calling `session_regenerate_id(true)`.
+  - **Information Disclosure:** Line 51 exposes raw `$e->getMessage()` in `$error` rendered to the user on line 177.
+  - **SQL Injection:** Mitigated via prepared statement (`SELECT * FROM equipo_it WHERE email = ? LIMIT 1`, lines 34–35).
+  - **XSS:** `$system_name` (lines 61, 111, 151, 164) and `$error` (line 177) are escaped via `htmlspecialchars()` (missing explicit `ENT_QUOTES, 'UTF-8'`).
+  - **Third-Party CDN Without SRI:** Loads `https://cdn.tailwindcss.com` (line 73) and FontAwesome from `cdnjs.cloudflare.com` (line 87) without `integrity` / `crossorigin` attributes.
+  - **Hardcoded Credentials / Weak Encryption:** None (`password_verify()` against bcrypt hash is used).
+- **Best Practices Violations:**
+  - Uses `SELECT *` (line 34) instead of selecting only required columns.
+  - Does not check `password_needs_rehash()`.
+  - Missing security response headers (`X-Frame-Options` / `CSP` `frame-ancestors`, `Cache-Control: no-store`).
+  - Mixes authentication controller logic and HTML view in one file.
+- **Missing Validations:**
+  - No server-side email validation (`filter_var($email, FILTER_VALIDATE_EMAIL)`).
+  - No type check on `$_POST['email']` / `$_POST['password']` before `trim()` (line 26): sending an array (`email[]=x`) triggers an uncaught `TypeError` in PHP 8+.
+  - No maximum input length validation.
+- **Error Handling Quality:** Moderate/weak. Uses a generic login failure message on line 48 (prevents user enumeration), but catches `Exception` on line 50 and leaks `$e->getMessage()` to the UI (line 51) instead of logging internally; `TypeError` is not caught by `catch (Exception $e)`.
+- **Session Management Issues:**
+  - Missing `session_regenerate_id(true)` after successful authentication (Session Fixation).
+  - `session_start()` (line 7) relies on PHP defaults without enforcing cookie flags (`httponly`, `secure`, `samesite`) or `session.use_strict_mode`.
+  - No session idle timeout (`last_activity`) metadata stored.
+
+---
+
+## 7. `c:\xampp\htdocs\IT_Software\logout.php`
+- **Full Path:** `c:\xampp\htdocs\IT_Software\logout.php`
+- **Line Count:** 18 lines
+- **Purpose:** Clears `$_SESSION`, expires the session cookie, destroys the server-side session, and redirects to `login.php`.
+- **Security Issues:**
+  - **CSRF (Logout CSRF):** Destroys the session on any `GET` request without requiring `POST` or a CSRF token.
+  - **Hardcoded Credentials / Weak Encryption / SQL Injection / XSS:** None.
+- **Best Practices Violations:**
+  - Uses legacy positional `setcookie()` call (lines 10–13) without `samesite` option.
+  - Does not restrict logout to `POST` requests.
+- **Missing Validations:**
+  - No HTTP method or CSRF token validation.
+  - No `session_status() === PHP_SESSION_NONE` check before `session_start()`.
+- **Error Handling Quality:** Minimal; does not check return values of `session_start()` or `session_destroy()`.
+- **Session Management Issues:** Properly empties `$_SESSION`, deletes the cookie if `session.use_cookies` is enabled, and calls `session_destroy()`, but lacks CSRF/method enforcement and `SameSite` cookie deletion parity.
+
+---
+
+## 8. `c:\xampp\htdocs\IT_Software\.gitignore`
+- **Full Path:** `c:\xampp\htdocs\IT_Software\.gitignore`
+- **Line Count:** 13 lines
+- **Purpose:** Excludes OS metadata (`.DS_Store`, `Thumbs.db`), `*.tmp`, `*.log`, IDE directories (`.vscode/`, `.idea/`), `*.bak`, `*.swp`, and `scratch/` from Git tracking.
+- **Security Issues:**
+  - **Credential & Secret Exposure in VCS:** Does **not** exclude:
+    - `config/conexion.php` (contains hardcoded production DB credentials)
+    - `config/security.php` (contains hardcoded AES-256 encryption key)
+    - `.env` / `.env.*`
+    - `*.sql` / database dumps
+    - `*.xlsx` / `config/datos_excel.php` (note: `Equipos Empresa.xlsx` and `plantilla_personal nuevo (1).xlsx` exist in the repository root)
+    - `*.key`, `*.pem`
+- **Best Practices Violations:**
+  - Lacks standard secret/environment-file ignore rules and dependency directory ignores (`vendor/`, `node_modules/`).
+- **Missing Validations / Error Handling / Session Management:** N/A for `.gitignore`.
+
+
+================================================================================
+SECCION 2: Dashboard & Core Pages Auditor
+================================================================================
+
+# Comprehensive Code & Architecture Audit: Main Pages & Core Layout
+
+## Executive Summary
+An end-to-end audit of the 5 core files in `c:\xampp\htdocs\IT_Software` reveals a clean, functional modern Tailwind-based UI with several notable structural, performance, security, and consistency issues:
+1. **Dashboard DB Efficiency (`index.php`)**: Executes **17 separate SQL queries** (8 against `equipos` alone) *before* authentication is even checked in `includes/header.php`. Most KPIs and breakdowns can be consolidated into 2–3 queries.
+2. **Broken/Misleading Links**: `index.php` links to `modules/credenciales/index.php?tab=equipos` (which redirects to `modules/empleados/index.php`, not equipment credentials) and omits filter query parameters on company/city KPI links despite tooltip promises. `modules/usuarios/index.php` exists and is matched in `header.php`'s active-state logic, yet has no navigation item.
+3. **CSS / Tailwind Mismatches**: Multiple files rely on `shadow-xs` (Tailwind v4 utility absent in Tailwind v3 CDN), `.animate-fade-in-up` (defined inline only in `index.php`, missing on other pages where `header.php` flash messages use it), `.glass-panel` (undefined), `.custom-scrollbar` (undefined), and invalid CSS `ring` / `ring-color` properties in `header.php`.
+4. **Misplaced File (`includes/plantilla.php`)**: Contrary to its name and location, `includes/plantilla.php` is **not a UI template system**—it is a standalone CSV download endpoint for Excel import templates.
+5. **Inline JS & Error Handling (`footer.php`, `index.php`)**: 315 lines of global JS are inline in `footer.php`, `TablePaginator` lacks `NaN` validation on `localStorage` values and HTML-escaping on `itemLabel`, and `pageshow` forces full reloads on bfcache restore.
+
+---
+
+## File 1: `c:\xampp\htdocs\IT_Software\index.php`
+- **Line Count**: 914 lines (61,841 bytes)
+- **Purpose**: Main IT dashboard displaying quick-access navigation cards, 4 KPI cards, an interactive branch hardware distribution accordion, an interactive hardware composition breakdown accordion, recent equipment/employees lists, pending IT tasks, upcoming M365 renewals, and a database-uninitialized fallback screen.
+
+### Code Quality (Structure, Readability, Dead Code)
+- **Auth Guard Runs Too Late**: `index.php` runs all ~17 dashboard SQL queries (lines 38–223) *before* `require_once __DIR__ . '/includes/header.php'` (line 225), which is where `$_SESSION['user_id']` is verified and unauthenticated requests are redirected to `login.php`. Unauthenticated hits waste DB work.
+- **Unreachable Connection Catch Block**: `try { $db = Database::getConexion(); ... } catch (Exception $e)` (lines 38–223) cannot catch DB connection failures because `Database::getConexion()` in `config/conexion.php` catches `PDOException` internally and calls `die($html)`.
+- **Dead / Unused Code**:
+  - `$equipos_por_tipo` (lines 34, 174–175) is queried from `equipos` and never used anywhere in the template.
+  - `$maxSucVal` (line 467) is calculated via `max(array_column(...))` and never used.
+  - Columns `t.descripcion` (line 179), `eq.service_tag_sn` (line 201), `c.licencia_tipo` (line 190), and `s.ubicacion` (line 128) are selected in SQL queries but never displayed.
+  - `require_once __DIR__ . '/config/security.php'` (line 8) is unused (`Security` class is never called).
+  - `.glass-panel` class on the error card (line 231) is undefined in `styles.css` or `index.php` (vestige of an older glassmorphic theme referenced in the line 4 docblock).
+  - Hardcoded fake fallback metrics in KPI 2 (`Mastertec (36) • Suministros (42)`, line 386) and KPI 3 (`Managua: 72 • León: 10`, line 416) display misleading numbers if the DB returns empty arrays.
+- **Inconsistent SQL Logic**:
+  - KPI 3 (line 53), KPI 2 (line 55), and city breakdown (line 120) filter employees with `cargo IS NULL OR cargo NOT IN ('Sucursal', 'Empresa')`, whereas "Últimos Colaboradores" (line 214) uses `WHERE emp.cargo NOT IN ('Sucursal', 'Empresa')`, silently excluding employees whose `cargo` is `NULL`.
+  - KPI "tareas_pendientes" (line 56) counts `('Pendiente', 'En Progreso')`, excluding `'Vencida'`, while `$tareas_urgentes` (line 182) includes `'Vencida'`.
+  - KPI `total_sucursales` (line 55) counts `DISTINCT sucursal_id` from `empleados` rather than `sucursales` or `equipos`.
+  - Line 148 mixes raw columns (`eq.tipo, eq.estado`) with alias `marca` in `GROUP BY` while `SELECT` wraps them in `COALESCE(NULLIF(TRIM(...)))`, which is inconsistent with line 78 (`GROUP BY 1, 2, 3, 4`) and fragile under `ONLY_FULL_GROUP_BY`.
+- **Minor Hygiene / XSS**: `$tu['estado']` (line 861) and `$m['ciclo_facturacion']` (line 889) are echoed without `htmlspecialchars()`. Dynamic Tailwind classes (`bg-<?= $col ?>-50`, `bg-' . $color . '-500` on lines 657, 678) work under the Play CDN but would break under purged/compiled Tailwind builds.
+
+### Dashboard KPI Queries Efficiency & Performance
+- **17 Separate SQL Queries per Load (8 scanning `equipos`)**:
+  1. Lines 48–50: 3 separate `SELECT COUNT(*)` queries (`credenciales_equipos`, `credenciales_web`, `cuentas_m365`) -> can be 1 single query using scalar subqueries.
+  2. Lines 54 & 59–62: 5 separate `COUNT(*)` scans on `equipos` (`total_equipos`, `Laptop`, `Desktop`, `Impresora`, `NOT IN (...)`) -> can be 1 conditional aggregation query (`SUM(tipo = 'Laptop')`, etc.) or derived directly in PHP from the grouped query.
+  3. Lines 69–79 (`rows_det`), 140–149 (`rows_suc_det`), and 174 (`equipos_por_tipo`): 3 additional `GROUP BY` queries scanning `equipos`! Both `hw_detalle`, `suc_detalles`, `equipos_por_sucursal`, and the 5 KPI counts on `equipos` can be computed in PHP from **1 single grouped query** (`GROUP BY eq.sucursal_id, eq.tipo, eq.estado, marca`).
+  4. Line 132: `WHERE s.id IN (SELECT DISTINCT sucursal_id FROM equipos WHERE sucursal_id IS NOT NULL)` is redundant with `INNER JOIN equipos` or `HAVING COUNT(eq.id) > 0` and adds an extra scan.
+  5. Lines 108–116 (`kpi_colab_ciudades`): Uses leading-wildcard `LIKE '%...'` patterns across `s.nombre` and `s.ubicacion` (`LIKE '%Le%'` is overly broad and non-indexable).
+- **Large Inline `<style>` / `<script>`**: Two inline `<script>` blocks (lines 601–617, 743–766) and an inline `<style>` block (lines 900–908) defining `.animate-fade-in-up` (which `header.php` also relies on).
+
+### UI/UX & Accessibility
+- **Strengths**: Responsive grids (`grid-cols-2 md:grid-cols-3 lg:grid-cols-6`, `lg:grid-cols-4`, `lg:grid-cols-3`, `lg:grid-cols-2`); accordion buttons use `type="button"`, `aria-expanded`, and `aria-controls`.
+- **Issues**:
+  - `focus:outline-none` on accordion triggers (lines 499, 676) without `focus-visible:ring-*` removes keyboard focus indicators.
+  - Fixed `h-80` height (lines 774, 809) creates nested scrollbars inside `<main>`.
+  - `date('d M, Y', strtotime($m['fecha_proximo_pago']))` (line 888) lacks a null/empty check (null dates would render `01 Jan, 1970` or `31 Dec, 1969`).
+  - Inline `🏢` emoji on line 504 clashes with FontAwesome iconography used elsewhere.
+  - `shadow-xs` is used throughout (non-existent in Tailwind v3 CDN).
+
+### JavaScript
+- **Inline & Duplicated**: `toggleSucDetalle(sucId)` (lines 603–616) and `toggleHwDetalle(key)` (lines 745–765) duplicate the exact same single-open accordion pattern. Both lack null guards on `btn`/`panel`/`chev` and set a fixed pixel `maxHeight = panel.scrollHeight + 'px'` without updating on window resize (can clip text if viewport narrows while open).
+- **Inline handlers**: `onclick` attributes on lines 255, 498, 675.
+
+### Navigation / Link Issues in `index.php`
+- **Broken/Misleading Link (line 440)**: `modules/credenciales/index.php?tab=equipos` ("Equipos" under Credenciales Protegidas) redirects immediately in `modules/credenciales/index.php` (lines 17–20) to `modules/empleados/index.php` instead of device credentials.
+- **Legacy Redirect Link (line 442)**: `modules/credenciales/index.php?tab=web` redirects to `modules/infraestructura/index.php?tab=boveda`.
+- **Missing Filter Params**:
+  - Line 381: `title="Ver equipos de ..."` links to `modules/equipos/index.php` with no `?empresa_id=` filter.
+  - Line 411: `title="Ver colaboradores en ..."` links to `modules/empleados/index.php` with no city/branch filter.
+
+---
+
+## File 2: `c:\xampp\htdocs\IT_Software\includes\header.php`
+- **Line Count**: 411 lines (23,396 bytes)
+- **Purpose**: Global application shell—session initialization, authentication guard, system title configuration, sidebar menu structure & active route/tab detection, `<head>` assets (favicons, Tailwind CDN, FontAwesome, `styles.css`, TomSelect), topbar user badge/logout, and session flash alerts.
+
+### Code Quality (Structure, Readability, Dead Code)
+- **Late Auth Guard**: Auth check (lines 194–197) executes *after* loading `system_config.php`, building the entire `$menu_sections` tree, and resolving `$topbar_title`. Should run right after `session_start()` and `conexion.php`.
+- **Invalid CSS**: Line 258 in the inline TomSelect `<style>` block writes `ring: 2px !important; ring-color: rgba(37,99,235,0.2) !important;`. `ring` and `ring-color` are Tailwind utility concepts, **not valid CSS properties**, so browsers ignore them.
+- **Missing / Dead Styles**:
+  - Tailwind config defines `darkBase`, `darkCard`, `darkNav`, `brand.*` (lines 230–240), none of which are used in the layout.
+  - Flash alerts (lines 382, 397) use `animate-fade-in-up`, which is only defined in `index.php`—no animation runs on any module page.
+  - Uses `shadow-xs` (lines 328, 343, 346, 361, 362, 372, 382, 397), which has no effect in Tailwind v3 CDN.
+- **Security & String Handling**:
+  - **Unescaped Flash Output (XSS risk)**: `$_SESSION['flash_success']` (line 387) and `$_SESSION['flash_error']` (line 402) are echoed raw without `htmlspecialchars()`.
+  - **Multibyte Bug**: Initials extraction (lines 203–204) uses `substr()` instead of `mb_substr()`, corrupting accented initials (e.g., `Á`, `Ó`), and `explode(' ', ...)` doesn't collapse multiple spaces.
+
+### Performance
+- No DB queries inside `header.php` (good).
+- Synchronous `<head>` script loading: Tailwind Play CDN (`cdn.tailwindcss.com` compiles CSS in browser JS on every page load), FontAwesome 6.4.0 CDN, TomSelect CSS/JS CDNs, and `styles.css` (which triggers a render-blocking `@import` for Google Fonts).
+
+### UI/UX & Accessibility
+- **Viewport Height Overflow Risk**: `<body>` has `h-screen overflow-hidden flex` (line 264), while its child `<div class="min-h-screen flex flex-col lg:flex-row w-full">` (line 266) and `<div class="flex-1 flex flex-col min-w-0 min-h-screen">` (line 341) use `min-h-screen` rather than `h-screen` / `min-h-0`. On mobile (`flex-col`) or tall content, `min-h-screen` can exceed `h-screen` and get clipped by `body`'s `overflow-hidden`.
+- **Accessibility Gaps**:
+  - Mobile open button (line 346) and close button (line 285) lack `aria-label`, `aria-expanded`, and `aria-controls="main-sidebar"` (line 285 also lacks `title`).
+  - Submenu toggle button (line 306) lacks `type="button"`, `aria-expanded`, and `aria-controls="submenu-<?= $key ?>"`.
+  - Flash dismiss buttons (lines 389, 404) lack `type="button"` and `aria-label`.
+  - `<nav>` (line 291) lacks `aria-label`.
+
+### Navigation & Link Verification
+All 15 sidebar/topbar URLs (`index.php`, `modules/equipos/index.php`, `modules/entregas/index.php`, `modules/impresoras/index.php`, `modules/internet/index.php`, `modules/infraestructura/index.php?tab=equipos_red|matriz_ip|wifi|boveda|equipo_it`, `modules/empleados/index.php`, `modules/credenciales/index.php?tab=m365`, `modules/tareas/index.php`, `modules/configuracion/sucursales.php`, `modules/configuracion/index.php`, `logout.php`) and all 6 favicon/manifest paths in `<head>` resolve to existing files.
+- **Missing / Orphaned Route**: `modules/usuarios/index.php` exists in the codebase and is matched on line 142 (`strpos($uri, '/usuarios/') !== false`), yet has **no link anywhere in the sidebar**.
+- **Fallback Title Bug**: Visiting `modules/infraestructura/index.php` with an unrecognized `?tab=...` causes `$topbar_title` to fall back to `'Dashboard'`.
+- **Case Sensitivity Note**: `BASE_URL` in `config/conexion.php` is `/it_software/` (lowercase) while the directory is `IT_Software` (works on Windows XAMPP, would 404 on case-sensitive Linux servers).
+
+---
+
+## File 3: `c:\xampp\htdocs\IT_Software\includes\footer.php`
+- **Line Count**: 325 lines (14,697 bytes)
+- **Purpose**: Closes the HTML layout tags opened in `header.php` and provides all shared client-side JavaScript: sidebar/submenu toggles, form/select `pageshow` reset, TomSelect auto-initialization, search clear-button helpers (`toggleClearBtn`, `limpiarBuscador`), and the `TablePaginator` class.
+
+### Code Quality & JavaScript
+- **All JS is Inline**: 315 lines of global JS live inline inside `footer.php` instead of an external cacheable `assets/js/app.js` file.
+- **Harsh `pageshow` Reload (lines 44–46)**: `if (event.persisted) { window.location.reload(); }` destroys browser bfcache and forces a full server reload whenever the user hits Back/Forward.
+- **No Error Handling on TomSelect (lines 50–58)**: Initializing `new TomSelect(el, ...)` without a `try/catch` or `if (el.tomselect) return;` guard means a single malformed `<select>` or duplicate init throws an uncaught exception and breaks initialization for all remaining selects on the page.
+- **`TablePaginator` Bugs & Edge Cases**:
+  - **Corrupted `localStorage` breaks pagination (line 104, 171)**: `parseInt(savedSize, 10)` is never checked with `Number.isNaN(...)` or validated against `pageSizeOptions`. A non-numeric `localStorage` value yields `NaN` pages and hides all controls.
+  - **Unsafe `colspan` assumption (line 124)**: `!tr.querySelector('td[colspan]')` skips any valid data row that happens to contain a cell with `colspan`.
+  - **Wrong scroll target (line 140)**: `this.table.scrollIntoView(...)` targets document scroll instead of `<main class="flex-1 overflow-y-auto">` where page scrolling actually occurs.
+  - **HTML Injection / XSS Hygiene (lines 228, 250, 269, 279, 292, 298)**: `this.itemLabel` and `this.instanceName` are interpolated directly into `innerHTML` and inline `onclick="..."` handlers rather than escaping or binding event listeners cleanly.
+- **Accessibility in JS**: `toggleSidebar()` (lines 10–19) and `toggleSubmenu(id)` (lines 22–31) do not toggle `aria-expanded`, and there is no `Escape` key handler or focus trap for the mobile drawer.
+
+### UI/UX Consistency
+- **Theme Color Drift**: `TablePaginator` renders the active page button with `bg-[#111c44]` (line 265) and select focus border with `focus:border-cyan-500` (line 292), clashing with the `#0f172a` / `#2563eb` (Slate 900 / Blue 600) design system in `header.php` and `styles.css`.
+
+---
+
+## File 4: `c:\xampp\htdocs\IT_Software\includes\plantilla.php`
+- **Line Count**: 126 lines (7,067 bytes)
+- **Purpose**: **Misnamed/Misplaced File** — Despite residing in `includes/plantilla.php`, it is **not a UI template system**. It is a standalone authenticated CSV generator endpoint (`?tipo=...`) outputting UTF-8 BOM + semicolon-delimited sample CSV templates for Excel imports (`equipos`, `empleados`, `credenciales_equipos`, `credenciales_web`, `m365`, `infraestructura`).
+
+### Code Quality & Architecture
+- **Architectural Misplacement**: Because it calls `session_start()`, `ob_end_clean()`, `header()`, and `exit`, including it as a template partial would wipe output and terminate execution. It belongs in `modules/configuracion/` or an `exports/` directory rather than `includes/`.
+- **Dead Code**: `$instrucciones` array (lines 27–37 in `case 'equipos':`) is defined and never written to the CSV or referenced anywhere.
+- **Session Guard Inconsistency**: Calls `session_start()` unconditionally (line 8) instead of checking `session_status() === PHP_SESSION_NONE` like `header.php`.
+- **Error Handling**: `default: die("Tipo de plantilla no válido.");` (line 97) returns HTTP 200 OK instead of `http_response_code(400)`. Missing `X-Content-Type-Options: nosniff`.
+- **Data / Schema Drift**:
+  - `equipos` sample (line 30) omits `Impresora` while listing infrastructure types (`Servidor`, `Switch`, `Firewall`, `Access Point`) that now live in `infraestructura_red`.
+  - `empleados` sample (line 49) uses generic branch names (`Sucursal Managua`, `Sucursal León`) instead of actual company-prefixed branches (`Mastertec Managua`, etc.).
+- **Navigation / Usage**: Linked from `modules/configuracion/index.php` for `equipos`, `infraestructura`, `empleados`, and `credenciales_web`; the `credenciales_equipos` and `m365` cases are currently unlinked in `modules/`.
+
+---
+
+## File 5: `c:\xampp\htdocs\IT_Software\assets\css\styles.css`
+- **Line Count**: 269 lines (6,830 bytes)
+- **Purpose**: Core design system stylesheet defining CSS custom properties, typography (`Outfit`, `JetBrains Mono`), custom scrollbars, `.card-modern`, `.card-interactive`, `.filter-bar`, `.modern-table`, `.badge-pill*`, `.btn-icon*`, `.input-modern`, and `.animate-fade-in`.
+
+### Code Quality (Structure, Readability, Dead Code)
+- **Broken Sidebar Scrollbar Selector (line 90)**: `aside::-webkit-scrollbar-thumb` never matches the scrolling element because `aside` does not scroll—`<nav class="... overflow-y-auto">` inside `aside` does (needs `aside nav::-webkit-scrollbar-thumb` or `aside ::-webkit-scrollbar-thumb`).
+- **Missing Utility Classes Referenced by Layout/Dashboard**:
+  - `.custom-scrollbar` (used in `header.php` line 291 and `index.php` lines 778, 813) is **not defined**.
+  - `.animate-fade-in-up` (used in `header.php` lines 382, 397 and `index.php` line 266) is **not defined** in `styles.css` (only `.animate-fade-in` exists at line 267).
+  - `.glass-panel` (used in `index.php` line 231) and `.shadow-xs` (used across `index.php` and `header.php`) are **not defined**.
+- **Unused `:root` Variables**: Most tokens in `:root` (lines 8–54, e.g., `--sidebar-*`, `--violet*`, `--shadow-md/lg/xl`, `--text-secondary/muted`) are unused in `styles.css` while HTML uses hardcoded Tailwind classes.
+
+### Performance
+- **Render-Blocking Font `@import` (line 6)**: `@import url("https://fonts.googleapis.com/...")` inside CSS delays font discovery and blocks rendering; moving to `<link rel="preconnect">` + `<link rel="stylesheet">` in `header.php` is faster.
+- **Overuse of `!important` (line 67)**: `.font-mono, code, kbd, samp` uses `!important`, preventing local overrides.
+
+### UI/UX & Accessibility
+- **Touch Target Size & Focus States**: `.btn-icon` (lines 218–235) is `32×32px` (`2rem`), below the recommended `44×44px` minimum touch target, and defines no `:focus-visible` style.
+- **Reduced Motion**: No `@media (prefers-reduced-motion: reduce)` rule to disable `.animate-fade-in` or `.card-interactive:hover` transform transitions.
+- **No Print / Responsive Rules**: Relies 100% on Tailwind CDN classes for responsive layout and provides no `@media print` cleanup for sidebar/topbar.
+
+---
+
+## Prioritized Recommendations
+1. **Move auth guard before DB queries** in `index.php` (or require a lightweight `config/auth.php` before querying).
+2. **Consolidate Dashboard SQL** in `index.php` from 17 queries down to ~5–6 queries (1 grouped query on `equipos`, 1 scalar multi-count for credentials, 1 each for empresas, ciudades, tareas, m365, recent equipment, recent employees) and fix the `cargo IS NULL` mismatch on line 214.
+3. **Fix broken/misleading links** in `index.php` (`?tab=equipos`, empresa/ciudad filters) and add `modules/usuarios/index.php` to the sidebar if still active (or deprecate it).
+4. **Externalize & harden global JS**: Move `footer.php` JS + `index.php` accordion JS into `assets/js/app.js`, add `Number.isNaN` validation in `TablePaginator`, wrap `TomSelect` in `try/catch`, remove the forced bfcache reload, and unify `TablePaginator` colors with `#0f172a` / `#2563eb`.
+5. **Fix CSS gaps**: Move `.animate-fade-in-up`, `.custom-scrollbar`, `.shadow-xs` (or replace with `shadow-sm`), and TomSelect styles into `styles.css`; fix invalid `ring` CSS in `header.php`; fix `aside nav::-webkit-scrollbar-thumb`; escape flash messages with `htmlspecialchars()`.
+6. **Relocate `includes/plantilla.php`** out of `includes/` (or clearly rename/document it as a CSV export handler) and remove dead `$instrucciones` code.
+
+================================================================================
+SECCION 3: Equipos & Entregas Auditor
+================================================================================
+
+# Security & Code Quality Audit Report: `equipos` & `entregas` Modules
+
+**Target Workspace:** `c:\xampp\htdocs\IT_Software`
+**Audited Files:** 5 files across `modules/equipos/` and `modules/entregas/` (plus cross-checked against `includes/header.php`, `includes/footer.php`, `assets/css/styles.css`, `database/script_gestion_it.sql`, `database/dump.sql`, `modules/equipos/imprimir_asignacion.php`, and sibling modules for UI/schema consistency).
+
+---
+
+## Executive Summary of Critical Findings
+
+1. **Broken Core Workflows in `modules/equipos/index.php` (`f.reset()` wipes hidden IDs):** `abrirAsignar()`, `abrirDevolver()`, and `abrirCambiarEstado()` populate hidden inputs (`asig_eq_id`, `dev_eq_id`, `dev_asig_id`, `ce_eq_id`) *before* calling `abrirModal()`, which executes `form.reset()` (line 1067). This resets those hidden IDs back to `""` (`0` in PHP), breaking equipment assignment, return, and status changes.
+2. **Global Lack of CSRF Protection & Unsafe GET State Mutations:** None of the POST forms or AJAX endpoints use CSRF tokens. Worse, `equipos/guardar.php?action=baja&id=...` and `entregas/guardar.php?accion=eliminar&id=...` perform destructive mutations over `GET`, and `entregas/guardar.php` accepts `GET` for *all* actions (`crear`, `entregar`, `editar`, `eliminar`) because it never checks `$_SERVER['REQUEST_METHOD']`.
+3. **XSS & Sensitive Credential Exposure (`equipos/index.php`):**
+   - **Reflected XSS** in `href` at line 642 (`$filtro_sucursal`, `$filtro_depto`, `$filtro_estado` echoed unescaped from `$_GET`).
+   - **Stored XSS** in inline `onclick` JS string literals at lines 648, 652, 661, 665, 670 (`htmlspecialchars()` inside `'...'` JS strings inside HTML attributes allows breaking out of the JS string via single quotes/backslashes because the HTML parser decodes `&#039;` before JS execution).
+   - **Sensitive Data Exposure:** Line 523 serializes `pc_pin_clear` (decrypted Windows PC PINs) and `pc_pin_cifrado` into the HTML DOM `onclick` attribute for every assigned equipment row.
+4. **DDL & Seed Data Execution on Every Page Load (`entregas/index.php`):** Lines 12–44 execute `CREATE TABLE IF NOT EXISTS` and re-insert hardcoded dummy records whenever `recepciones_equipos` is empty.
+5. **Unvalidated File Upload, Hardcoded Import Logic & N+1 Queries (`equipos/guardar.php`):** `import_csv` lacks MIME/size/extension allowlisting, uses `simplexml_load_string()` without XML validation/entity/zip-bomb safeguards, runs N+1 `SELECT`/`PREPARE` queries inside the import loop, and relies on hardcoded branch IDs.
+
+---
+
+## 1. `c:\xampp\htdocs\IT_Software\modules\equipos\index.php`
+
+- **Full Path:** `c:\xampp\htdocs\IT_Software\modules\equipos\index.php`
+- **Line Count:** 1,459 lines
+- **Purpose:** Equipment inventory dashboard (`equipos`). Displays executive KPIs, status pill tabs, filter bar (client-side quick search + server-side status, branch, department, and dashboard `tipo` filter), assignment history modal (`?history_id=...`), paginated hardware table, and 7 modals (New Equipment, Assign, Return, Equipment Detail with decrypted Windows PC PIN, Decommission, Quick Status Change, and an orphaned New Branch modal).
+
+### Security
+- **Authentication / Authorization:** Relies on `includes/header.php` (line 7) to verify `$_SESSION['user_id']`. No role-based authorization (`$_SESSION['user_rol']`) restricts viewing decrypted Windows PC PINs or triggering state-changing modals.
+- **SQL Injection:** Safe. All user-supplied parameters (`$filtro_sucursal`, `$filtro_estado`, `$filtro_depto`, `$filtro_tipo`, `$ver_historial_id`) use PDO prepared statements with `?` placeholders (lines 51–56, 84–114, 132–150). Note: `$ver_historial_id` (line 126) is not cast to `(int)` before `if ($ver_historial_id > 0)` (in PHP 8, `'abc' > 0` evaluates to `true`).
+- **XSS:**
+  - **Reflected XSS (Line 642):** `$filtro_sucursal`, `$filtro_depto`, and `$filtro_estado` from `$_GET` are interpolated directly into the `href="..."` attribute of the history link without `urlencode()` or `htmlspecialchars()`.
+  - **Stored XSS via HTML-encoded JS strings (Lines 648, 652, 661, 665, 670):** `htmlspecialchars($eq['marca'].' '.$eq['modelo'])` is placed inside single-quoted JS string arguments inside `onclick="..."`. The browser HTML-decodes `&#039;` back to `'` before JS parsing, allowing single quotes or backslashes in `marca`/`modelo` to break out of the JS string. Use `htmlspecialchars(json_encode(...), ENT_QUOTES, 'UTF-8')` or `data-*` attributes instead.
+  - **JSON in `onclick` (Line 523):** `json_encode($eq, JSON_HEX_APOS | JSON_HEX_QUOT)` prevents attribute/quote breakout, though adding `JSON_HEX_TAG | JSON_HEX_AMP` is recommended.
+  - **Sensitive Data Exposure (Lines 73, 120, 523):** `pc_pin_clear` (decrypted Windows PIN) and `pc_pin_cifrado` are embedded into every table row's `onclick` attribute in the rendered HTML, exposing all users' PINs in page source/DOM.
+- **CSRF:** No CSRF tokens on any form (`modal-nuevo-equipo`, `modal-asignar`, `modal-devolver`, `modal-cambiar-estado`, `modal-nueva-sucursal-equipos`), and `confirmarBaja()` (line 1088) points to a `GET` endpoint (`guardar.php?action=baja&id=...`).
+- **Input Validation:** Filter GET params (`estado`, `departamento`, `tipo`) are not allowlisted; `history_id` is not cast to `(int)`.
+
+### Code Quality
+- **Critical Functional Bug (Lines 1063–1073, 1092–1099, 1229–1240):** `abrirModal(id)` runs `f.reset()` on all non-edit/detail modals. Because `abrirAsignar()`, `abrirDevolver()`, and `abrirCambiarEstado()` set hidden inputs (`asig_eq_id`, `dev_eq_id`, `dev_asig_id`, `ce_eq_id`) and `#ce_nuevo_estado` *before* calling `abrirModal()`, `f.reset()` immediately wipes those hidden IDs back to `""` (`0`), causing assignment, return, and status-change submissions to fail or silently no-op.
+- **Dead / Unused Code:**
+  - Lines 1331–1436 (`modal-nueva-sucursal-equipos`, `abrirModalNuevaSucursalEquipos()`, `cerrarModalNuevaSucursalEquipos()`, `guardarNuevaSucursalEquipos()`) and line 25 (`$empresas = $db->query(...)`) are completely orphaned—nothing in the codebase triggers `abrirModalNuevaSucursalEquipos()`.
+  - Lines 518–521: `$badge` variable is computed on every row iteration and never used.
+  - Line 1012: Duplicate comment `<!-- 5. Modal Dar de Baja Equipo -->`.
+  - Line 1201: `const secObservaciones` is declared and unused.
+- **Duplicate Code & Inconsistencies:**
+  - Sucursal `<optgroup>` rendering is duplicated at lines 343–353 and 728–738.
+  - Equipment type matching is inconsistent: line 638 checks `'AP'`, line 1161 checks `'Access Point'`, and line 571 falls back to a laptop icon for `Switch`, `Firewall`, `AP`, and `Servidor`.
+  - Line 1211 (`det_link_historial`) drops active URL filters (`?history_id=` only), and line 476 (`Cerrar Historial`) resets all filters (`href="index.php"`). Line 642 preserves some filters but omits `tipo`.
+  - Lines 782, 826, 862: Cancel buttons use dark-theme `bg-white/5 hover:bg-white/10` on white modal backgrounds.
+
+### Database Queries
+- **Redundant Query (Lines 132 & 148):** When `$ver_historial_id > 0`, `equipos` is queried *twice* by primary key `id` (once for `tipo, marca, modelo, service_tag_sn`, again for `proveedor_origen, registrado_por`). These should be merged into one query.
+- **Duplicate Row Risk (Lines 76–78):** `LEFT JOIN asignaciones` and `LEFT JOIN credenciales_personales` can produce duplicate rows for the same equipment if an equipment has >1 active assignment (`fecha_devolucion IS NULL`) or an employee has >1 `'PC PIN'` credential.
+- **Missing Indexes (per `database/script_gestion_it.sql` / `dump.sql`):**
+  - `asignaciones`: lacks composite index `(equipo_id, fecha_devolucion)` for the active-assignment join.
+  - `credenciales_personales`: lacks composite index `(empleado_id, tipo)`.
+  - `equipos`: lacks index on `tipo` (filtered and ordered by `e.tipo`).
+  - `empleados`: lacks indexes on `estado` and `departamento` (line 28 `DISTINCT departamento`, line 34 `WHERE estado = 'Activo'`, line 100 `emp.departamento = ?`).
+- **Scalability:** No server-side pagination (`LIMIT`/`OFFSET`); loads all matching records and decrypts every PC PIN per request.
+
+### Form Handling
+- **Type ENUM Mismatch Risk (Lines 711–720):** `modal-nuevo-equipo` offers `Monitor` and free-text `tipo_otro` (`__otro__`), whereas `database/script_gestion_it.sql` defines `equipos.tipo` as an `ENUM` without `Monitor` (and `dump.sql` only has 7 types). Submitting `Monitor` or custom `tipo_otro` fails unless the live DB column was altered to `VARCHAR` or expanded `ENUM`.
+- **Missing Edit Capability:** There is no modal or handler to edit existing equipment metadata (`marca`, `modelo`, `service_tag_sn`, `sucursal_id`, `notas`).
+- **TomSelect + `reset()` Desync:** `#asig_emp` uses TomSelect (`.searchable-select`), which does not automatically sync its visual state when `f.reset()` is called.
+- **Quick Search State Loss:** `#buscar_equipo` is purely client-side and resets whenever server-side filter `<select>` elements submit the form.
+
+### UI Consistency
+- Mixes newer `styles.css` design tokens (`modern-table`, `badge-pill`, `bg-blue-600`, `rounded-2xl`) with legacy styles (`glass-panel`, `grad-cyan-blue text-slate-800`, `cyan-400` focus rings, `bg-white/5` cancel buttons).
+- Uses light modal headers and `relocateModals()` with `z-[9999]`, unlike `entregas/index.php` which uses dark colored modal headers and `z-50` without modal relocation.
+
+---
+
+## 2. `c:\xampp\htdocs\IT_Software\modules\equipos\guardar.php`
+
+- **Full Path:** `c:\xampp\htdocs\IT_Software\modules\equipos\guardar.php`
+- **Line Count:** 633 lines
+- **Purpose:** Backend controller for equipment creation (`add_eq`), bulk CSV/XLSX import (`import_csv`, invoked from `modules/configuracion/index.php`), assignment (`assign`), return (`return`), direct status update (`cambiar_estado`), and decommissioning (`baja`).
+
+### Security
+- **Authentication / Authorization:** Checks `$_SESSION['user_id']` (lines 12–15). No role-based authorization check.
+- **SQL Injection:** Safe. All parameterized queries use PDO prepared statements with `?` placeholders.
+- **XSS / Information Disclosure:**
+  - Line 632: `die("Error procesando inventario: " . $e->getMessage());` echoes raw exception messages (SQL errors, table/column names, and potentially input values) without `htmlspecialchars()`.
+- **CSRF & HTTP Method Safety:**
+  - Zero CSRF token verification across all POST handlers.
+  - **GET State-Changing Action (Lines 604–626):** `action=baja` closes active assignments and marks equipment `'De Baja'` via a `GET` request, enabling trivial CSRF via links or `<img>` tags.
+- **File Upload & XML Parsing Risks (`import_csv`, lines 61–215):**
+  - Only checks `$_FILES['archivo_csv']['error'] === UPLOAD_ERR_OK` and file extension via `pathinfo()` (lines 62, 70). No MIME-type validation (`finfo_file`), no file size cap, and no extension allowlist: any non-`.xlsx` file (including `.xls` binary files accepted by `configuracion/index.php` line 101, or arbitrary files) falls into the `else` CSV branch.
+  - Uses `simplexml_load_string()` on untrusted `.xlsx` XML entries (lines 88, 101, 116, 150) without checking return values for `false`, without XML entity/size limits, and without `ZipArchive` uncompressed-size limits (Zip Bomb / DoS risk; XXE risk if ever run on PHP < 8.0).
+- **Input Validation:**
+  - `add_eq`: Does not validate non-empty `marca`, `modelo`, `service_tag_sn`, `proveedor_origen`, valid `sucursal_id`, or `tipo` against allowed values; duplicate `service_tag_sn` crashes with `die()`.
+  - `assign`: Does not validate `$equipo_id > 0`, `$empleado_id > 0`, active employee existence, date format (`Y-m-d`), or non-empty `$condicion_entrega`.
+  - `return`: Does not validate `$equipo_id > 0`, `$asignacion_id > 0`, or `$fecha_devolucion`. Crucially, it does **not** verify that `$asignacion_id` belongs to `$equipo_id` or that `fecha_devolucion IS NULL`, allowing state corruption (marking equipment `'Disponible'` while its real active assignment remains open).
+  - `cambiar_estado` (line 576): Allows setting `nuevo_estado = 'Asignado'` without creating an `asignaciones` row or assigning an employee.
+  - `baja` (line 605): Does not validate `$id > 0`.
+
+### Code Quality
+- **Error Handling:**
+  - `catch (Exception $e)` (line 628) calls `die(...)` instead of flashing `$_SESSION['flash_error']` and redirecting cleanly (and misses PHP `Error`/`Throwable` such as `TypeError` on malformed `.xlsx` XML).
+  - `return` (line 566) and `baja` (line 624) do not set `$_SESSION['flash_success']`.
+  - Unknown `$action` or non-POST requests for POST-only actions exit silently with a blank 200 OK page.
+- **Dead / Unused Code:**
+  - Line 9: `require_once __DIR__ . '/../../config/security.php';` (`Security` is never used).
+  - Lines 35, 42: `$ip_direccion = null;` and `$notas = null;` are hardcoded `null` variables.
+  - Line 293 / 363: `$areaVal` is always `''` for CSV imports (area/department column is ignored in CSV parsing).
+- **Fragile Import Logic (`import_csv`):**
+  - Hardcoded `$defaultSucursalId = 1` (line 80) and `$sheetSucursalMap` IDs (lines 123–130).
+  - Hardcoded spreadsheet-specific string hacks (lines 174–193: `'IMPRESORAS'`, `'MATRICIAL'`, `'FX-890'`, `'Área Facturación'`, `'laser'`) that can misclassify legitimate models containing `'impresora'` or `'laser'`.
+  - Line 146: `'xl/' . $ridMap[...]` breaks if `Target` starts with `/xl/`.
+  - Line 157: `(string)$c->v` misses `inlineStr` cells.
+  - Line 217–237: Line-by-line `explode("\n")` + `str_getcsv()` breaks multi-line quoted CSV fields (should use `fgetcsv()`).
+  - Line 320 vs 338: `'Celular'` is in `$mapTipos` but missing from `$tiposPermitidos`; `'Monitor'` is in neither and silently defaults to `'Laptop'`.
+  - Lines 405–410: Appending `-2`, `-3` to duplicate serials within a file silently alters serial tags and can collide with existing DB tags.
+
+### Database Queries
+- **N+1 Query & Repeated-Prepare Problem (`import_csv`, lines 361–479):**
+  - Inside `foreach ($itemsToImport as $item)`, the code executes per-row `SELECT id FROM equipos WHERE service_tag_sn = ?` (up to multiple times in the `CLON-` `while` loop), and **prepares + executes** 4–6 statements inside every iteration (lines 448, 453, 458, 464, 465, 470, 475).
+  - Line 448 uses `WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))`, preventing index usage on `empleados.nombre` (which also lacks an index).
+  - Preloading existing serials and employees into PHP maps and preparing statements outside the loop would eliminate the N+1 bottleneck.
+- **Locking:** `assign` properly uses `SELECT ... FOR UPDATE` inside a transaction (line 504), whereas `return`, `cambiar_estado`, and `baja` do not lock or verify current state.
+
+### Form Handling
+- `add_eq` forces `estado = 'Asignado'` when `$tipo === 'Impresora'` (line 43) without an assignment row.
+- `assign` sets no flash message before redirecting to `imprimir_asignacion.php?id=...`.
+- `import_csv` safely allowlists `redirect=config` (line 488).
+
+### UI Consistency
+- Uses `$_GET['action']` parameter naming, whereas `entregas/guardar.php` uses `$_POST['accion'] ?? $_GET['accion']`. Error handling (`die()`) is inconsistent with `entregas/guardar.php` (flash + redirect).
+
+---
+
+## 3. `c:\xampp\htdocs\IT_Software\modules\entregas\index.php`
+
+- **Full Path:** `c:\xampp\htdocs\IT_Software\modules\entregas\index.php`
+- **Line Count:** 569 lines
+- **Purpose:** Equipment reception & delivery management page (`recepciones_equipos`). Manages IT intake records ("En Proceso", "Listo para Entrega", "Entregado"), displays KPIs, status filter tabs, search/pagination, and 3 modals (New Intake, Confirm Delivery, Edit Record).
+
+### Security
+- **Authentication / Authorization:** Relies on `includes/header.php` (line 6) for session authentication. No role-based authorization check.
+- **SQL Injection:** Safe. Status filter query (lines 53–64) uses a PDO prepared statement with `?`.
+- **XSS:**
+  - Line 228: `<?= $rec['estado'] ?>` is not wrapped in `htmlspecialchars()` (low risk while `ENUM`, but should be escaped).
+  - Lines 241, 248: `json_encode($rec, JSON_HEX_APOS | JSON_HEX_QUOT)` is safe against quote breakout in `onclick='...'`; adding `JSON_HEX_TAG | JSON_HEX_AMP` is recommended. All other table cells use `htmlspecialchars()`.
+- **CSRF:**
+  - Zero CSRF protection on all 3 POST modals (`modalNuevo`, `modalEntregar`, `modalEditar`).
+  - **GET-based Delete Action (Line 253):** `<a href="guardar.php?accion=eliminar&id=...">` deletes records via `GET`.
+- **Input Validation:** `$_GET['estado']` (line 51) is not validated against allowed enum values.
+
+### Code Quality
+- **Anti-pattern — Runtime DDL & Auto-Seeding on Every GET (Lines 12–44):**
+  - Executes `CREATE TABLE IF NOT EXISTS recepciones_equipos ...` on every page load (causing implicit commits/metadata locks).
+  - Whenever the table is empty (`$check_empty == 0`), automatically inserts 2 hardcoded sample records (`'Arllin Alemán'`, `'María López'`, `'2026-08-27'`), making it impossible to permanently clear all records.
+- **Dead / Unused Code & Schema Disconnect:**
+  - Line 7: `require_once __DIR__ . '/../../config/security.php';` (`Security` is never used).
+  - Line 48: `$empleados_list` is queried from `empleados` and **never used** anywhere in the file.
+  - `recepciones_equipos` columns `equipo_id` (FK), `trabajo_realizar`, and `creado_por` are defined in the table schema (lines 15, 23, 29) but never populated or displayed. In `modalNuevo`, `#select_equipo_inventario` (line 291) has no `name` attribute, so `equipo_id` is never submitted.
+- **Bugs:**
+  - **Time Format Bug (Line 204):** `date('H:i A', strtotime($rec['fecha_ingreso']))` mixes 24-hour `H` with `A` (AM/PM), displaying invalid times like `14:30 PM`.
+  - **Select Option Mismatch (Lines 305–313 & 525):** `autocompletarEquipo()` sets `#equipo_tipo` to `$eq['tipo']` from `equipos` (which includes `AP`, `Monitor`, `Firewall`, `Maquina Virtual`, `Control de acceso`), but `#equipo_tipo` `<select>` only contains `Laptop`, `Desktop`, `Servidor`, `Impresora`, `Switch`, `Celular`, `Otro`. Selecting an `AP` or `Monitor` clears `#equipo_tipo` to `""`, failing HTML5 validation.
+  - **Modals Not Relocated (Lines 272, 367, 411):** Modals remain inside `<main>` with `z-50` instead of being appended to `document.body` (`relocateModals()`), risking stacking-context issues.
+  - **Broken Icon Class (Line 110):** `fa-solid fa-screws-tilting` is not a valid FontAwesome 6 Free icon (renders as a missing glyph).
+  - **Duplicate Call (Lines 158 & 537):** `toggleClearBtn()` is called both inline in `oninput` and inside `filtrarTabla()`.
+  - **Missing `rel="noopener noreferrer"` (Line 234):** On `target="_blank"` link to `imprimir_acta.php`.
+  - **`openModalNuevo()` (Line 486):** Does not reset the form or TomSelect `#select_equipo_inventario` between openings.
+
+### Database Queries
+- **Inefficient Repeated `COUNT(*)` Queries (Lines 68–71):** Executes 4 separate `SELECT COUNT(*) FROM recepciones_equipos` queries for KPIs instead of a single conditional aggregation query (`COUNT(*)`, `SUM(CASE WHEN estado = ...)`).
+- **Unused Query (Line 48):** Queries all active employees (`$empleados_list`) for nothing.
+- **Missing Indexes (Lines 13–31):** `recepciones_equipos` only has `PRIMARY KEY (id)` and `fk_recepcion_eq (equipo_id)`. It lacks an index on `estado` (used in `WHERE estado = ?` and KPI counts) and `fecha_ingreso`.
+- **No Server-Side Pagination:** Loads all rows with `SELECT *` and relies solely on JS `TablePaginator`.
+
+### Form Handling
+- Line 332: `value="Cargador.+"` pre-fills a strange literal `.+` suffix.
+- Line 351: `observaciones` pre-fills `"El equipo se entrega configurado..."` even when creating a new `'En Proceso'` maintenance intake.
+- `modalEditar` uses a free-text `<input>` for `equipo_tipo` (line 429) whereas `modalNuevo` uses a `<select>` (line 305).
+
+### UI Consistency
+- **Diverges from `equipos/index.php` and `empleados/index.php`:**
+  - Page header is wrapped in a white card with `<h1>` and icon (lines 77–90), whereas `equipos` and `empleados` use unboxed `<h2>` headers.
+  - Uses `max-w-[1400px] mx-auto` and `rounded-3xl` container instead of full-width `rounded-2xl` / `glass-panel`.
+  - Table omits `.modern-table` from `assets/css/styles.css`.
+  - Total KPI card (line 94) is not clickable (`<div>`), while the other 3 KPI cards are `<a>` links.
+  - Modal headers use solid dark/emerald banners (`bg-slate-900`, `bg-emerald-600`, `bg-slate-800`) instead of the light bordered headers in `equipos`.
+
+---
+
+## 4. `c:\xampp\htdocs\IT_Software\modules\entregas\guardar.php`
+
+- **Full Path:** `c:\xampp\htdocs\IT_Software\modules\entregas\guardar.php`
+- **Line Count:** 102 lines
+- **Purpose:** CRUD controller for `recepciones_equipos` supporting `crear`, `entregar`, `editar`, and `eliminar`.
+
+### Security
+- **Authentication / Authorization:** Checks `$_SESSION['user_id']` (lines 8–11). No role-based authorization check.
+- **SQL Injection:** Safe. All 4 SQL operations use PDO prepared statements with `?` placeholders.
+- **XSS / Information Disclosure:**
+  - Line 99: `$_SESSION['flash_error'] = 'Error al procesar la solicitud: ' . $e->getMessage();`. Because `includes/header.php` (line 402) echoes `$_SESSION['flash_error']` without `htmlspecialchars()`, raw exception details are exposed and could reflect HTML if an exception echoes input.
+- **CSRF & HTTP Method Enforcement:**
+  - Zero CSRF token protection.
+  - **Missing `REQUEST_METHOD` Check (Line 14):** `$accion = $_POST['accion'] ?? $_GET['accion'] ?? '';` allows `crear`, `entregar`, `editar`, and `eliminar` to all be invoked via `GET` requests. `eliminar` explicitly reads `$_GET['id']` (line 87).
+- **Input Validation:**
+  - `crear` (lines 17–38): Does not validate non-empty required strings (`equipo_marca`, `equipo_modelo`, `service_tag_sn`, `entregado_por`, `receptor_final`) or field lengths (`VARCHAR(50)` / `VARCHAR(100)`).
+  - `entregar` (lines 40–58): Validates `$id > 0`, but does not validate non-empty `$receptor_final`, does not check if record `$id` exists (`rowCount()`), and allows re-delivering an already `'Entregado'` record (overwriting `fecha_entrega`).
+  - `editar` (lines 60–84): Validates `$id > 0`, but does not validate required fields or allowlist `$estado` against `['En Proceso', 'Listo para Entrega', 'Entregado']`.
+  - Unknown `$accion`: Exits silently with an empty 200 OK response instead of redirecting with an error.
+
+### Code Quality
+- **Error Handling:** Uses `try/catch (Exception $e)` with flash message + redirect (cleaner than `equipos/guardar.php`, though raw `$e->getMessage()` leaks SQL errors).
+- **State & Integration Gaps:**
+  - `editar` can change `estado` to `'Entregado'` without setting `fecha_entrega`, or revert `'Entregado'` to `'En Proceso'` while leaving an old `fecha_entrega` timestamp intact.
+  - Does not accept or persist `equipo_id`, `trabajo_realizar`, or `creado_por`, and never updates the linked `equipos` table status (`Mantenimiento`/`Disponible`/`Asignado`).
+  - Hardcoded `'Cargador.+'` default fallback on line 24 (`??` only applies if key is missing, not empty `''`).
+
+### Database Queries
+- Single-row primary-key `INSERT`, `UPDATE`, `DELETE` statements. Efficient; no N+1 issues.
+
+### Form Handling
+- **Stale Flash Message Bug (Lines 54–56):** `entregar` sets `$_SESSION['flash_success']` and immediately redirects to `imprimir_acta.php?id=$id`. Because `imprimir_acta.php` does not include `header.php` or clear `$_SESSION['flash_success']`, the success banner stays in session and appears unexpectedly on the next page the user visits.
+
+### UI Consistency
+- Controller-only file; action parameter is named `accion` (Spanish) rather than `action` as in `equipos/guardar.php`.
+
+---
+
+## 5. `c:\xampp\htdocs\IT_Software\modules\entregas\imprimir_acta.php`
+
+- **Full Path:** `c:\xampp\htdocs\IT_Software\modules\entregas\imprimir_acta.php`
+- **Line Count:** 277 lines
+- **Purpose:** Standalone printable US-Letter HTML document ("CONSTANCIA DE ENTREGA DE EQUIPO") for a `recepciones_equipos` record.
+
+### Security
+- **Authentication / Authorization:** Checks `$_SESSION['user_id']` (lines 9–12). No role-based authorization check.
+- **SQL Injection:** Safe. Casts `$id = (int)$_GET['id']` (line 18) and uses a prepared statement (`WHERE id = ?`, lines 21–22).
+- **XSS:** Safe. All rendered DB fields (`receptor_final`, `equipo_tipo`, `equipo_marca`, `equipo_modelo`, `service_tag_sn`, `accesorios`, `observaciones`, `fecha_formateada`) are escaped with `htmlspecialchars()`.
+- **CSRF:** Read-only `GET` document.
+- **Input Validation:** Checks `isset($_GET['id'])` and `if (!$rec)` (lines 14, 25), returning plain `die(...)` text if missing or not found (`id <= 0` also triggers `die()`).
+
+### Code Quality
+- **Broken Icon (Line 267):** Renders `<i class="fa-solid fa-print"></i>` without loading FontAwesome CSS (unlike `header.php`), so the icon is invisible.
+- **Date Parsing Edge Case (Lines 31–35):** `$fecha_unix = strtotime($rec['fecha_entrega'] ?: $rec['fecha_ingreso']);` lacks a fallback if `strtotime()` returns `false`, which in PHP 8 causes deprecation warnings and `$meses[-1]` undefined array key errors.
+- **Hardcoded Assets & Fallbacks:**
+  - Line 212: Hardcoded relative path `../../assets/images/logo_master.png` and `alt="Master Technologies"` instead of `BASE_URL` / system config.
+  - Line 233: Hardcoded `'Cargador.+'` fallback if `accesorios` is empty.
+- **Session Flash Leakage:** Does not consume/clear `$_SESSION['flash_success']` set by `entregas/guardar.php` before redirecting here.
+- **Print Layout Risk:** `.signatures-section { margin-top: 220px; }` (line 176) + `.document-footer { margin-top: 100px; }` (line 198) can push signatures onto a second printed page when `observaciones` contains multiple lines. Also `<body onload="window.print()">` forces immediate print dialog on open, and does not check if `$rec['estado'] === 'Entregado'` before printing a delivery certificate.
+
+### Database Queries
+- Single primary-key lookup (`SELECT * FROM recepciones_equipos WHERE id = ?`). Efficient (selecting explicit columns instead of `*` would be slightly cleaner).
+
+### Form Handling
+- N/A (read-only view).
+
+### UI Consistency
+- Duplicates the purpose and corporate template of `modules/equipos/imprimir_asignacion.php` ("CONSTANCIA DE ENTREGA DE EQUIPO"), but diverges in CSS class names (`document-container` vs `page-container`), margins (`2.5cm` vs `2cm`, `margin-top: 220px` vs `300px`, static vs fixed print footer), wording ("del siguiente equipo" vs "de los siguientes equipos"), equipment label (`tipo marca modelo` vs `marca modelo`), and screen action button ordering/colors (`#0284c7`/`#475569` vs `#0ea5e9`/`#64748b`).
+
+---
+
+## Summary Recommendations (Prioritized)
+
+1. **Immediate Bugfix:** Fix `abrirModal()` in `modules/equipos/index.php` so `form.reset()` runs *before* setting hidden IDs (`asig_eq_id`, `dev_eq_id`, `dev_asig_id`, `ce_eq_id`), or reset forms only in `abrirNuevoEquipo()`.
+2. **Critical Security Fixes:**
+   - Implement a session-backed CSRF token helper and enforce it on all state-changing requests across both modules.
+   - Convert `equipos/guardar.php?action=baja` and `entregas/guardar.php?accion=eliminar` to `POST`-only endpoints, and enforce `$_SERVER['REQUEST_METHOD'] === 'POST'` in `entregas/guardar.php`.
+   - Fix Reflected XSS (`equipos/index.php:642`) and Stored XSS in inline JS attributes (`equipos/index.php:648, 652, 661, 665, 670`).
+   - Stop embedding decrypted `pc_pin_clear` in table row `onclick` attributes; fetch sensitive PINs on demand via an authenticated, authorized endpoint.
+   - Escape flash messages in `includes/header.php` (`htmlspecialchars`) and stop exposing raw `$e->getMessage()` via `die()` or flash errors.
+   - Harden `import_csv` file upload validation (extension allowlist, MIME check, size limit, `fgetcsv()`, XML error/entity/zip-bomb checks).
+3. **Database & Performance Fixes:**
+   - Move `recepciones_equipos` DDL and seed data out of `entregas/index.php` into a SQL migration script.
+   - Merge duplicate `equipos` queries in `equipos/index.php` (lines 132 & 148) and the 4 KPI queries in `entregas/index.php` (lines 68–71).
+   - Add indexes on `asignaciones(equipo_id, fecha_devolucion)`, `credenciales_personales(empleado_id, tipo)`, `equipos(tipo)`, `empleados(estado, departamento)`, `empleados(nombre)`, and `recepciones_equipos(estado, fecha_ingreso)`.
+   - Refactor `import_csv` to preload lookups and prepare statements outside the loop.
+4. **Cleanup & UI Consistency:**
+   - Remove dead code (`modal-nueva-sucursal-equipos` + `$empresas` in `equipos/index.php`; `$empleados_list` in `entregas/index.php`; unused `security.php` imports).
+   - Fix `date('H:i A')` -> `date('h:i A')` and replace `fa-screws-tilting` in `entregas/index.php`, include FontAwesome or remove broken `<i>` in `imprimir_acta.php`, unify the two Constancia print templates, and standardize modal/header/table styling across both modules.
+
+================================================================================
+SECCION 4: Credenciales Module Auditor
+================================================================================
+
+### Audit Report: `modules/credenciales` (`c:\xampp\htdocs\IT_Software`)
+
+---
+
+## 1. File Inventory & Overview
+
+| File | Full Path | Line Count | Size | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| `index.php` | `c:\xampp\htdocs\IT_Software\modules\credenciales\index.php` | **3,476 lines** | **215,368 bytes (~210.3 KB)** | Monolithic controller + view for the Credentials / Microsoft 365 & Tenants module: fetches and decrypts records across 7 tables, renders tabs, tables, 11 modals, and ~1,000 lines of inline JavaScript. |
+| `guardar.php` | `c:\xampp\htdocs\IT_Software\modules\credenciales\guardar.php` | **867 lines** | **42,426 bytes (~41.4 KB)** | Unified `POST`/`GET` action handler for creating, editing, CSV-importing, and deleting Equipment, Web, M365, and Tenant Cloud credentials, using `Security::encrypt()`. |
+
+---
+
+## 2. Detailed Audit: `modules/credenciales/index.php`
+
+### A. Why is `index.php` 215 KB? (Excessive Inline Code Breakdown)
+`index.php` is a 3,476-line monolith combining database queries, decryption loops, dead/migrated tab views, 11 HTML modals, and inline JavaScript in one file:
+- **Lines 1–414 (414 lines):** Unconditional PHP data-loading, decryption, and aggregation block that executes on **every** page load—even for tabs that were moved to other modules.
+- **Lines 416–1320 (905 lines):** Page layout, navigation tabs, filter bar, and **5 separate tab bodies** (`equipos`, `m365`, `tenants`, `gmail`, `fichas`), despite `equipos`, `fichas`, and `web` redirecting elsewhere at lines 12–20.
+- **Lines 1323–1780, 2027–2548, 3250–3415 (1,146 lines):** **11 inline HTML modals** (including duplicated M365 edit modals and unused modals for migrated tabs).
+- **Lines 1782–2025, 2550–3247, 3417–3472 (998 lines):** **3 `<script>` blocks** of inline JavaScript, plus embedded JSON datasets (`statsPaises`, `sucursalesLista`, `empleadosLista`, `empresasLista`, `usuariosAutocompleteLista`) and full JSON row objects injected twice per `<tr>` in `onclick` attributes.
+
+### B. Security: Password Handling, Encryption/Decryption in Views, XSS & HTML Exposure
+
+#### 1. Decrypted Passwords Exposed in HTML Source Code (CRITICAL)
+**Yes — every decrypted password is exposed in plaintext inside the HTML source code:**
+- **`data-password` attributes:**
+  - `m365` tab (line 712): `data-password="<?= htmlspecialchars($m365['pass_plain']) ?>"`
+  - `tenants` tab (line 854): `data-password="<?= htmlspecialchars($tenant['pass_plain']) ?>"`
+  - `gmail` dead tab (line 981): `data-password="<?= htmlspecialchars($g['pass_gmail_plain']) ?>"`
+- **Full decrypted objects serialized into `onclick` attributes (twice per row):**
+  - `m365` tab (lines 673, 737): `json_encode($m365, JSON_HEX_APOS | JSON_HEX_QUOT)` includes both `password_cifrado` and `pass_plain` (decrypted at line 131).
+  - `tenants` tab (lines 816, 896): `json_encode($tenant, JSON_HEX_APOS | JSON_HEX_QUOT)` includes `password_cifrado` and `pass_plain` (decrypted at line 42).
+  - `equipos` dead tab (lines 532, 592) and `fichas` dead tab (lines 1197, 1301): serialize `pass_plain`, `bitlocker_plain`, `m365_pass_plain`, `pass_gmail`, `pc_pin`, `pass_ag`, `pass_corp`, and `credenciales_personales[].password_clear`.
+  - `fichas` dead tab (lines 1249, 1289): renders `pc_pin` and `pass_ag` directly in visible table text without masking.
+- Because `TablePaginator` paginates purely on the client side, **all records and all plaintext passwords** in the database are dumped into the initial HTML response, accessible via View Source, DevTools, browser cache, or proxy logs.
+
+#### 2. XSS & Injection Risks in Password/Credential Display
+- **DOM XSS in `verFichaConsolidada()` (lines 3194–3215):** `container.innerHTML += ...` interpolates `${cred.tipo}`, `${cred.usuario || 'N/A'}`, and **`${cred.password_clear || ''}`** into HTML (`value="${cred.password_clear || ''}"`) **without `escapeHtml()`**. A double quote or `<script>`/`onerror` payload in any of those fields breaks out of the attribute and executes JS.
+- **DOM XSS in `filtrarCustomUserDropdown()` (lines 2934–2946):** Injects `u.nombre` and `u.sub` directly into `innerHTML` without `escapeHtml()`, and `escNombre` only escapes single quotes (`'`), allowing double-quote attribute breakout inside `onclick="seleccionarCustomUser(...)"`.
+- **Unsafe inline JS interpolation with `addslashes()` / `escapeHtml()` inside `onclick`:**
+  - Lines 1263, 1281: `onclick="... copiarTexto('<?= addslashes($f['m365_correo']) ?>', this);"` does not HTML-escape `"`, allowing attribute breakout.
+  - Lines 3100, 3143, 3151: `onclick="navigator.clipboard.writeText('${escapeHtml(f.pc_pin)}')"` — `escapeHtml()` converts `'` to `&#039;`, which the HTML parser decodes back to `'` before JS runs, enabling JS syntax breakage or injection.
+- **`json_encode` flags omission (lines 532, 592, 673, 737, 816, 896, 947, 1197, 1301):** Uses `JSON_HEX_APOS | JSON_HEX_QUOT` without `JSON_HEX_TAG | JSON_HEX_AMP` inside HTML attributes.
+- **Unsafe URL schemes (`javascript:` XSS) & missing `rel="noopener noreferrer"`:**
+  - `tenants` tab (line 873): `<a href="<?= htmlspecialchars($tenant['url_portal']) ?>" target="_blank">` and `verDetalleCredWeb` (line 2683) do not validate `http://` or `https://` schemes, allowing `javascript:` URIs. Lines 873, 1414, and 2310 also lack `rel="noopener noreferrer"`.
+
+#### 3. Underlying Crypto & Access Control (`config/security.php` + `includes/header.php`)
+- `Security::$encryption_key` (`config/security.php` line 10) is hardcoded in the repository.
+- AES-256-CBC is used without an HMAC (no authenticated encryption), and `Security::decrypt()` returns `''` silently on decryption failure (making the `try/catch` at line 110 unreachable).
+- **No RBAC / Role Check:** `includes/header.php` (line 194) only checks `isset($_SESSION['user_id'])`. Any authenticated user can read and decrypt all M365 and Tenant passwords.
+
+### C. Tab System Analysis
+
+| Tab (`?tab=...`) | UI Nav Link | Behavior / Status | Details |
+| :--- | :--- | :--- | :--- |
+| `m365` (default) | Yes (line 447) | **Works** | Displays M365 table, search, company filter, pagination, detail modal, edit modal (`#modal-edit-m365`), create modal (`#modal-m365`), and delete. |
+| `tenants` | Yes (line 455) | **Partially Broken** | Table, create/edit modal (`#modal-tenant`), and delete work, **but search, company filter, and pagination are completely broken** due to an ID mismatch (`#paginacionTenants` vs `#paginacionCredenciales`). |
+| `web` | No | **Redirected** | Lines 12–15 redirect to `modules/infraestructura/index.php?tab=boveda`. Table was removed, but `#modal-det-cred-web` (line 2286) and `verDetalleCredWeb()` (line 2679) remain as dead code. |
+| `equipos` | No | **Redirected** | Lines 17–20 redirect to `modules/empleados/index.php`. Lines 496–612, `#modal-equipo`, `#modal-det-cred-equipo`, `#modal-edit-cred-equipo`, and all supporting PHP/JS remain as dead code. |
+| `fichas` | Link goes directly to `../empleados/index.php` (line 451) | **Redirected** | Lines 17–20 redirect to `modules/empleados/index.php`. Lines 1017–1318, `#modal-ficha-consolidada`, `verFichaConsolidada()`, `seleccionarPais()`, `seleccionarSubSede()`, and PHP aggregation queries remain as dead code (including hardcoded counts like `"Todas (96)"` at line 1074). |
+| `gmail` | No | **Broken (Orphaned)** | Reachable via `?tab=gmail` (lines 920–1016). `$cuentas_gmail` is **never defined**, triggering an undefined variable warning and always showing empty. `#modal-det-gmail` (line 3251) is missing almost all element IDs referenced by `verDetalleGmail()` (lines 3001–3031) and duplicates `id="fc_credenciales_container"` (line 3275 vs line 1405). |
+| Any invalid tab | No | **Blank Body** | Renders header, tabs, and filter bar with no table and no fallback. |
+
+### D. Code Quality & Duplicate Patterns
+`index.php` **definitely needs to be split** (and cleaned of dead code from migrated tabs):
+1. **Duplicate `abrirEditarM365()` function & duplicate modal:**
+   - Defined at **line 1783** (`abrirEditarM365(id, correo, licencia, ...)` targeting `#modal-editar-m365` at line 1677).
+   - Overwritten at **line 2758** (`abrirEditarM365(m3)` targeting `#modal-edit-m365` at line 2441). Lines 1677–1793 are completely shadowed dead code.
+2. **Duplicate DOM IDs:**
+   - `#fc_credenciales_container` appears in both `#modal-ficha-consolidada` (line 1405) and `#modal-det-gmail` (line 3275).
+   - `#paginacionCredenciales` appears in 4 tab blocks (lines 611, 757, 1014, 1315).
+3. **Orphaned HTML/JS:**
+   - Extra stray `</div>` at line 2533.
+   - `mostrarCustomUserDropdown` / `filtrarCustomUserDropdown` (lines 2916–2965) reference `#custom_user_dropdown`, which does not exist in the HTML.
+   - `checkNuevoEquipoCampos` (line 2967) expects a `<select>` for `equipo_id`, which is now `<input type="hidden" value="NEW_EQUIPO">` (line 1440).
+4. **Filter logic bug (line 1993):** `(rowEmpresa === empresa) || (rowEmpresa === '')` causes rows with no `data-empresa` to appear under *every* company filter.
+5. **Hardcoded domain-to-company guessing (lines 650–665):** M365 rows with no linked employee/company fall back to substring matching (`@mastertec`, `.com.hn`, `@suministros`, etc.) and default to `'Mastertec'`.
+
+### E. JavaScript Audit
+- **Total inline JS:** **~998 lines** across 3 `<script>` blocks:
+  - Block 1: lines 1782–2025 (244 lines)
+  - Block 2: lines 2550–3247 (698 lines)
+  - Block 3: lines 3417–3472 (56 lines)
+  - Plus dozens of inline `onclick`/`oninput`/`onchange` attributes.
+- **Duplicate/redundant JS functions:**
+  - `abrirEditarM365` defined twice (lines 1783 & 2758).
+  - Overlapping password/clipboard utilities: `togglePasswordInline`, `copyPasswordInline`, `copiarTexto`, `toggleFieldPass`, `toggleTenantPass`, and raw `navigator.clipboard.writeText` inside `verFichaConsolidada`.
+  - Redundant modal handlers: `abrirModal`/`cerrarModal` (lines 1795–1814) vs `abrirModalTenant`/`cerrarModalTenant` (lines 3419–3454).
+
+### F. Performance: DB Queries on Page Load
+`index.php` executes **14 SQL queries unconditionally on every page load** (even when viewing `m365` or `tenants`, while `includes/header.php` executes 0 queries):
+1. Line 28: `equipos` without credentials (unused — `#modal-equipo` hardcodes `NEW_EQUIPO`).
+2. Line 29: Active `empleados` list.
+3. Line 30: `sucursales JOIN empresas` list (unused by `m365` or `tenants`).
+4. Line 31: `empresas` list (`$empresas_list`).
+5. Line 34: `tenants LEFT JOIN empresas` + **loops & decrypts all tenant passwords**.
+6. Line 47: 7-table `JOIN` on `equipos` / `credenciales_equipos` / `asignaciones` / `empleados` / `sucursales` / `empresas` (dead `equipos` tab) + **decrypts all equipment passwords & BitLocker keys**.
+7. Line 91: `SELECT * FROM credenciales_web` (dead `web` tab) + **decrypts all web passwords**.
+8. Line 99: `credenciales_personales JOIN empleados` (dead `fichas` tab) + **decrypts all personal passwords**.
+9. Line 120: `cuentas_m365` with `LEFT JOIN`s + **decrypts all M365 passwords**.
+10. Line 138: `asignaciones JOIN equipos` (by `empleado_id`).
+11. Line 156: `asignaciones JOIN equipos LEFT JOIN credenciales_equipos LEFT JOIN empleados` (2nd nearly identical scan of `asignaciones JOIN equipos`).
+12. Line 290: `asignaciones JOIN equipos LEFT JOIN credenciales_equipos` (3rd scan of `asignaciones JOIN equipos`, for dead `fichas` tab) + **re-decrypts all equipment passwords & BitLocker keys**.
+13. Line 312: `empleados` + `sucursales` + `empresas` + `cuentas_m365` (for dead `fichas` tab) + **re-decrypts all M365 passwords**.
+14. Line 483: `SELECT DISTINCT nombre FROM empresas ORDER BY nombre` (duplicates query #4).
+
+> **Impact:** Loading `?tab=m365` or `?tab=tenants` performs **10–12 unnecessary queries** and **thousands of redundant AES-256-CBC `openssl_decrypt()` calls** for tables that are never rendered.
+
+### G. New Tenants Tab Integration Assessment
+The Tenants tab is **only partially integrated**:
+- **Working parts:**
+  - Navigation tab (`?tab=tenants`, line 455) and `+ Nuevo Tenant` header button (lines 431–435).
+  - Data query (`tenants LEFT JOIN empresas`, lines 34–39) and table rendering (lines 762–917).
+  - Create/Edit modal (`#modal-tenant`, lines 3291–3415) and JS (`lines 3418–3471`).
+  - Save (`save_tenant`) and delete (`delete_tenant`) handlers in `guardar.php`.
+- **Broken / Incomplete integration:**
+  1. **Search, Company Filter, and Pagination do not work at all on `?tab=tenants`:** Line 915 renders `<div id="paginacionTenants"></div>`, while `initPaginacionCredenciales()` (line 2009) checks for `#paginacionCredenciales`. Because `paginadorCredenciales` stays `null`, `TablePaginator` never initializes and `aplicarFiltros()` (line 1985) does nothing.
+  2. **Search bar UI mismatch:** `#filtro-busqueda` placeholder (line 468) still reads `"Buscar por correo, colaborador, cargo, empresa..."` (M365-specific).
+  3. **Inconsistent UX:** Clicking a tenant row opens the edit modal directly (`abrirEditarTenant`, line 816), whereas M365 rows open a read-only detail modal.
+  4. **Security regressions:** Exposes every tenant's `pass_plain` 3 times in HTML (lines 816, 854, 896), trims passwords on save (`guardar.php` line 755), allows `javascript:` URLs in `url_portal` (line 873), and deletes via CSRF-vulnerable `GET`.
+
+---
+
+## 3. Detailed Audit: `modules/credenciales/guardar.php`
+
+### A. Purpose & Structure
+867 lines (42,426 bytes). Handles all credential persistence and deletions via `?action=...`:
+- `POST` actions: `add_eq` (lines 26–122), `edit_eq` (lines 125–251), `add_web` (lines 254–272), `add_m365` (lines 275–317), `edit_m365` (lines 320–382), `import_csv_eq` (lines 385–507), `import_csv_web` (lines 510–605), `import_csv_m365` (lines 608–744), `save_tenant` (lines 749–824).
+- `GET` actions: `delete_eq` (lines 829–835), `delete_web` (lines 838–844), `delete_m365` (lines 847–853), `delete_tenant` (lines 856–863).
+
+### B. Security Findings
+1. **No CSRF Protection Anywhere:** Neither `POST` forms nor `GET` actions validate a CSRF token.
+2. **State-Changing Deletions over HTTP `GET` (lines 825–864):** `delete_eq`, `delete_web`, `delete_m365`, and `delete_tenant` execute `DELETE FROM ...` on a `GET` request (exploitable via CSRF/img tags/link prefetching).
+3. **No RBAC / Authorization Check (lines 13–16):** Only checks `isset($_SESSION['user_id'])`; any logged-in user can create, overwrite, or delete any credential or tenant.
+4. **Password Trimming Bug in `save_tenant` (line 755):** `$password_plano = trim($_POST['password'] ?? '');` silently alters passwords that intentionally start or end with spaces (unlike `add_eq`, `edit_eq`, `add_web`, `add_m365`, `edit_m365`).
+5. **Unvalidated URL Schemes (`save_tenant` line 757, `add_web` line 256):** `url_portal` and `url_acceso` are saved without checking `filter_var(..., FILTER_VALIDATE_URL)` or restricting to `http`/`https`.
+6. **Raw Exception Leakage & Unrolled-Back Transactions (lines 865–867):** `die("Error procesando los datos: " . $e->getMessage());` exposes SQL/schema errors to the browser and does not call `$db->rollBack()` if a transaction is active.
+7. **Unvalidated Input / Allowlists:** `save_tenant` inserts `$_POST['estado'] ?? 'Activo'` directly without checking an allowlist (`Activo`, `En Configuración`, `Mantenimiento`, `Inactivo`). `add_web` accesses `$_POST['plataforma']`, `$_POST['usuario']`, `$_POST['password']` without null-coalescing or empty checks.
+8. **CSV Upload Risks (lines 385–744):** No file extension/MIME/size validation before `fopen()`; assumes UTF-8 without validating encoding; `import_csv_m365` (lines 627–641) does not check if `$rawHeader` is `null` before `array_flip()` and misses the second BOM regex check present in `import_csv_eq`/`import_csv_web`.
+
+### C. Code Quality & Bugs in `guardar.php`
+1. **Massive Duplication:**
+   - CSV parsing (delimiter detection, BOM removal, `#` comment skipping, header normalization) is copy-pasted **3 times** (~130 duplicated lines across `import_csv_eq`, `import_csv_web`, `import_csv_m365`).
+   - `S_` (sucursal) and `E_` (empresa) pseudo-employee creation logic is duplicated verbatim between `add_eq` (lines 50–88) and `edit_eq` (lines 144–182).
+   - "Create employee on the fly" logic is duplicated verbatim between `add_m365` (lines 282–295) and `edit_m365` (lines 327–340).
+2. **BitLocker Silent Wipe Bug in `edit_eq` (lines 230, 238):** Submitting `edit_eq` with an empty `clave_bitlocker` overwrites the existing encrypted BitLocker key in DB with `NULL` (requiring `index.php` line 2658 to pre-fill the plaintext BitLocker key in the modal).
+3. **Hardcoded `sucursal_id = 1`:** `add_eq` (line 93), `add_m365` (line 291), and `edit_m365` (line 336) hardcode `sucursal_id = 1` when inserting equipos or new empleados.
+4. **Redirect & Flash Inconsistencies:**
+   - `add_eq`, `edit_eq`, `delete_eq`, `add_web`, `delete_web` redirect to `index.php?tab=equipos` or `index.php?tab=web`, triggering a second redirect to another module (`empleados` or `infraestructura`).
+   - `add_web`, `delete_eq`, `delete_web`, and `delete_m365` omit `$_SESSION['flash_success']`.
+
+---
+
+## 4. Prioritized Recommendations
+
+1. **Eliminate Plaintext Password Exposure in HTML (Critical):** Remove `Security::decrypt()` loops and `pass_plain` from `index.php` HTML attributes (`data-password`, `json_encode` in `onclick`). Implement an authenticated, CSRF-protected AJAX endpoint (`POST`) with role checks and audit logging to decrypt and return a single password only when the user clicks "Reveal" or "Copy".
+2. **Fix XSS Vulnerabilities (High):** Apply `escapeHtml()` to all fields (especially `cred.password_clear`, `cred.usuario`, `cred.tipo`, `u.nombre`, `u.sub`) in `verFichaConsolidada` and `filtrarCustomUserDropdown`; pass `JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP` to all `json_encode()` calls; validate `http://`/`https://` schemes on `url_portal`/`url_acceso` and add `rel="noopener noreferrer"`.
+3. **Fix CSRF & GET Deletions (High):** Add CSRF token verification to `guardar.php` and convert `delete_*` actions from `GET` to `POST` forms. Enforce role-based access control (RBAC) in both files.
+4. **Fix the Tenants Tab Search/Filter/Pagination Bug (High):** Change `#paginacionTenants` (line 915) to `#paginacionCredenciales` (or pass `#paginacionTenants` when `$tab === 'tenants'` in `initPaginacionCredenciales()`), and fix the `rowEmpresa === ''` bypass at line 1993.
+5. **Decompose `index.php` & Remove Dead Code (Medium):** Strip out the dead `equipos`, `web`, `fichas`, and `gmail` queries/HTML/modals/JS (reducing `index.php` by ~65–70% and eliminating 10+ redundant DB queries and decryptions per load). Split remaining `m365` and `tenants` views, modals, and JS into separate modular files, and remove the shadowed `abrirEditarM365` / `#modal-editar-m365` duplicate.
+6. **Harden `guardar.php` & `Security` (Medium):** Extract shared CSV import and employee-resolution helpers; stop trimming Tenant passwords; preserve BitLocker keys if blank on edit; wrap exceptions with `rollBack()` and generic error messages; move the AES key out of source control and add HMAC authentication (or use `sodium_crypto_secretbox`).
+
+================================================================================
+SECCION 5: Empleados Module Auditor
+================================================================================
+
+================================================================================
+AUDIT REPORT: MODULES / EMPLEADOS
+Workspace: c:\xampp\htdocs\IT_Software
+================================================================================
+
+--------------------------------------------------------------------------------
+1. FILE: c:\xampp\htdocs\IT_Software\modules\empleados\index.php
+--------------------------------------------------------------------------------
+
+A. OVERVIEW
+- Full Path: c:\xampp\htdocs\IT_Software\modules\empleados\index.php
+- Size: 99,848 bytes (~97.5 KiB / 99.8 KB)
+- Line Count: 1,578 lines
+- Purpose: Main employee directory ("Colaboradores & Onboarding IT"). Displays active employees (`estado = 'Activo'`) alongside linked hardware, active Microsoft 365 licenses, and personal credentials; provides client-side search/filtering/pagination, an Onboarding IT creation modal, an Edit Employee modal, a "Ficha 360° Integral" detail/credentials modal, an inline "Nueva Sucursal" modal, and a deactivation ("Dar de Baja") confirmation modal.
+
+B. WHY IS IT 99KB? (CODE BLOAT ANALYSIS)
+Approximate section breakdown:
+  - L1–160    (160 lines, ~8.3 KB)  : PHP DB queries & eager decryption loops
+  - L161–369  (209 lines, ~15.7 KB) : Header, filter panel, & directory table HTML
+  - L370–664  (295 lines, ~18.6 KB) : Onboarding modal + Script #1 + deep-link script
+  - L665–800  (136 lines, ~7.0 KB)  : Script #2 (duplicate modal funcs + edit populator)
+  - L801–965  (165 lines, ~12.0 KB) : Edit Employee modal HTML
+  - L966–1337 (372 lines, ~25.0 KB) : Ficha 360° modal HTML + large JS HTML builder
+  - L1338–1578(241 lines, ~13.2 KB) : Nueva Sucursal & Baja modals + filter/pagination JS
+
+Primary drivers of the 99 KB file size (and an even larger rendered HTTP response):
+1. Triple-Serialized Employee JSON in Every Table Row:
+   - Lines 301, 346, and 350 each call `json_encode($emp, ...)` on the FULL `$emp` array for every row (`<tr onclick='verFicha360(...)'>`, Ficha 360° button, and Edit button). Each row therefore ships 3 complete copies of the employee record, including duplicated equipment strings (`equipos_activos`, `equipo_vinculado`), nested `equipos_lista` hardware arrays, ciphertext columns, AND decrypted plaintext passwords/PINs/BitLocker keys.
+   - Line 656 adds a 4th copy (`json_encode($empleados)`) when `?details_id=` is present.
+   - Lines 684–685 also inline `equiposDisponibles` and `m365Disponibles` as JSON arrays even though `$equipos_disponibles` is already rendered as `<option>` HTML at L455–457.
+2. Five Large Inline Modals in One File:
+   - All 5 modals (`modal-onboarding`, `modal-editar-empleado`, `modal-ficha-360`, `modal-nueva-sucursal`, `modal-baja-empleado`) live inline inside `index.php` (~500 lines of modal markup) instead of partials or AJAX-loaded endpoints.
+3. ~565 Lines of Inline JavaScript & HTML-in-JS Template Literals:
+   - `verFicha360()` (L1099–1329) constructs ~200 lines of Tailwind-heavy HTML via template literals inside JS.
+4. Repeated HTML Markup:
+   - Sucursal `<optgroup>` dropdown rendering is duplicated 3 times (L223–237, L400–411, L832–843), and department `<option>` lists are hardcoded twice (L428–432, L858–862).
+
+C. SECURITY (INPUT VALIDATION, XSS, SQL INJECTION, AUTH, CSRF)
+1. [CRITICAL] Stored XSS via `escapeHtml()` Inside Inline `onclick="..."` Attributes:
+   - In `verFicha360()` (L1157, L1170, L1178, L1203, L1210, L1256, L1264, L1290, L1316), values are interpolated into JS string literals inside HTML attributes like:
+     `onclick="copiarTexto('${escapeHtml(emp.pc_pin)}', this)"`
+   - `escapeHtml()` converts `'` to `&#039;`. When the browser parses the `onclick` HTML attribute, it decodes `&#039;` back into a literal `'` BEFORE evaluating the JavaScript! Any password, PIN, BitLocker key, or email containing `'` breaks out of the JS string and executes arbitrary JavaScript.
+2. [HIGH] All Decrypted Secrets Exposed in Plaintext in Initial HTML DOM:
+   - Lines 133–145 decrypt `pc_pin`, `pass_gmail_plain`, `pass_ag_plain`, `m365_pass_plain`, `eq_pass_plain`, and `eq_bitlocker_plain` for ALL active employees on page load and embed them into `onclick` attributes across every table row. Any authenticated user viewing the directory receives every employee's plaintext credentials and BitLocker recovery keys in the HTML source, even without opening a modal or paging past page 1.
+3. [MEDIUM] Incomplete `json_encode` Flags in HTML Attributes:
+   - Lines 301, 346, and 350 use `json_encode($emp, JSON_HEX_APOS | JSON_HEX_QUOT)` without `JSON_HEX_TAG | JSON_HEX_AMP` (whereas L656 includes all four). Lines 684–685 also omit `JSON_HEX_AMP`.
+4. [MEDIUM] Missing CSRF Protection & Destructive GET Action:
+   - Neither `modal-onboarding` (L383) nor `modal-editar-empleado` (L819) includes a CSRF token.
+   - "Dar de Baja" (L354, L1387) triggers a state-changing deactivation via an `<a href="guardar.php?action=baja&id=...">` GET link, making it trivially exploitable via CSRF (`<img>` tag, link prefetch, etc.).
+5. [MEDIUM] Unescaped Flash Messages in Shared Layout (`includes/header.php` L387, L402) & No RBAC:
+   - Authentication is enforced by `includes/header.php` L194–197 (`$_SESSION['user_id']`), but there is no role check—any logged-in user has full access to all decrypted secrets and employee actions. Note also that `header.php` starts outputting HTML before `index.php` executes its database queries.
+6. [LOW] SQL Injection:
+   - `$details_id` (L18–69) uses PDO prepared statements with `?` placeholders (`PDO::ATTR_EMULATE_PREPARES => false` in `config/conexion.php`). Main directory queries (L92–159) have no interpolated user input. No SQLi found in `index.php`.
+7. [MEDIUM] Broken Client-Side Validation (`toggleOnboardingM365`):
+   - Lines 616, 623, 629, and 633 reference `document.getElementById('onb_m_date')`, which does NOT exist in the HTML (replaced by hidden inputs on L503–504). Checking `#chk_vin_m365` throws `TypeError: Cannot set properties of null (setting 'required')`, aborting execution before `mPass.required = true` runs.
+
+D. CODE QUALITY (STRUCTURE, DUPLICATE CODE, DEAD CODE, BUGS)
+1. Duplicate Function Definitions (Dead Code):
+   - `abrirModal(id)` and `cerrarModal(id)` are defined on L579–590 and immediately overwritten/redefined on L666–682.
+2. Dead PHP Queries & Unused Variables (`$details_id` block, L13–89):
+   - When `?details_id=` is passed, PHP runs 4 separate queries (`$ficha_empleado`, `$ficha_equipos`, `$ficha_m365`, `$ficha_cred_pers`) and decrypts all returned passwords. None of `$ficha_equipo`, `$ficha_equipos`, `$ficha_m365`, `$ficha_cred_pers`, or `$ficha_pc_pin` are ever rendered—L652–663 only read `(int)$ficha_empleado['id']` and look up the employee in `$empleados`.
+   - Other dead/stale references: `$sucursales = $sucursales_raw` (L156); `'onb_correo'` / `'onb_pass_correo'` in `toggleOnboardingCreds()` (L644, removed from HTML leaving blank lines L538–540); `edit_emp_nueva_m365_div` (L760/763, element does not exist); `_previousSucValue` (L1399/1413, never read); `verDetalleEmpleado()` compatibility alias (L1332).
+3. Functional Bugs:
+   - Hardcoded Department `<select>` Lists (L425–433, L856–863): Only 5 departments (`Gerencia`, `Administración`, `IT`, `Ventas`, `Logística`) are listed, despite `$list_deptos` (L159) dynamically querying all distinct departments (`Tecnología`, `Finanzas`, etc.). Editing an employee with any other department sets the select to blank.
+   - `abrirModal('modal-onboarding')` resets form inputs via `f.reset()` but does NOT re-hide `#div-onboarding-eq`, `#div-onboarding-m365`, `#div-onboarding-creds` or clean up `.nueva-suc-badge` / `.nueva-suc-hidden` injected during a previous canceled open.
+   - `substr($emp['nombre'], 0, 1)` (L304) is not multibyte-safe (`mb_substr` needed for accented initials like `Á` or `Ó`).
+   - Selecting a Sucursal filter and then selecting a different Empresa filter hides the selected option's `<optgroup>` without resetting `#filterSucursal.value`, resulting in 0 matches until manually cleared.
+
+E. FEATURES (CRUD COMPLETENESS, SEARCH, FILTERS, EXPORT)
+- CRUD Completeness:
+  - Create: Consolidated Onboarding IT modal (employee + optional equipment + optional M365 + optional personal creds + inline new branch).
+  - Read: Directory table + Ficha 360° Integral modal + `?details_id=` deep-link support.
+  - Update: Edit Employee modal (profile, assign/unassign multiple equipment, link/unlink M365, edit personal creds, inline new branch).
+  - Delete (Soft): "Dar de Baja" sets `estado = 'Inactivo'`, frees hardware, suspends M365.
+  - Gap: No UI toggle/view/filter for Inactive ("De Baja") employees and no way to reactivate a former employee.
+- Search & Filters:
+  - Real-time client-side text search (`#filterText` with clear button & Escape support) across name, role, department, company, branch, hardware, and M365 email.
+  - Dropdown filters for Empresa, Sucursal (dynamically filtered by Empresa), Departamento, and Recursos (`con_equipo`, `sin_equipo`, `con_m365`, `sin_m365`).
+- Export / Import:
+  - Export: MISSING. No CSV/Excel export button and no printable Ficha 360° / PDF view.
+  - Import: Backend (`guardar.php?action=import_csv`) exists and is linked from `modules/configuracion/index.php`, but there is no CSV import button/trigger inside `modules/empleados/index.php`.
+
+F. PERFORMANCE (QUERY EFFICIENCY, PAGINATION)
+1. 16 Correlated Subqueries in `$sql_empleados` (L92–119):
+   - Executes 16 correlated subqueries per active employee row—including **8 separate correlated subqueries against `cuentas_m365`** (`id`, `correo`, `licencia_tipo`, `password_cifrado`, `fecha_inicializacion`, `ciclo_facturacion`, `fecha_proximo_pago`, `estado`), **4 against `credenciales_personales`**, and **3 against `asignaciones`/`equipos`**.
+   - Lines 123–130 then execute a separate query joining `asignaciones`, `equipos`, and `credenciales_equipos`, duplicating the `asignaciones` work already done in the subqueries.
+   - This should be refactored to a single `LEFT JOIN` for `cuentas_m365` and a single grouped fetch for `credenciales_personales`.
+2. Eager AES-256 Decryption on Every Load (L133–145):
+   - Decrypts every credential and BitLocker key for every active employee on every page load rather than lazily via an AJAX endpoint when opening Ficha 360° or Edit.
+3. Client-Side Pagination Only (`TablePaginator`, L1558–1566):
+   - Paginates 15 rows per page in the browser DOM while still querying, decrypting, and transmitting 100% of active employees (plus 3x JSON payloads) on every request.
+
+G. UI (RESPONSIVE, CONSISTENT WITH OTHER MODULES)
+- Responsive Design:
+  - Filter grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-5`), `overflow-x-auto` table wrapper, and responsive modal grids work well overall.
+  - Issue: `modal-editar-empleado` (L808) and `modal-nueva-sucursal` (L1342) use `absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full` without horizontal outer margin/padding, causing them to touch viewport edges on mobile (`<512px`). `modal-onboarding` (L373) uses `flex items-center justify-center` with `overflow-y-auto`, which can clip the top of the modal on short screens.
+- Consistency with Other Modules (`equipos/index.php`, `impresoras/index.php`, `styles.css`):
+  - Consistent shell (`header.php`/`footer.php`), `TablePaginator`, `toggleClearBtn`/`limpiarBuscador`, and `rounded-2xl` surface cards.
+  - Inconsistencies:
+    1. Missing top executive KPI summary cards (present in `equipos/index.php` and `impresoras/index.php`).
+    2. Mixed primary accent colors across modals (`emerald-500` in Onboarding, `cyan-500` in Edit, `violet-600` in Ficha 360°) vs `blue-600` module standard.
+    3. Cancel buttons on L566 and L955 use `bg-white/5 hover:bg-white/10` (dark-mode leftover classes that render invisible hover states on a white background).
+    4. Line 302 applies `flex items-center gap-2.5` directly to a `<td>` element instead of a nested `<div>`, which can cause cell border/alignment inconsistencies across browsers.
+
+
+--------------------------------------------------------------------------------
+2. FILE: c:\xampp\htdocs\IT_Software\modules\empleados\guardar.php
+--------------------------------------------------------------------------------
+
+A. OVERVIEW
+- Full Path: c:\xampp\htdocs\IT_Software\modules\empleados\guardar.php
+- Size: 24,874 bytes (~24.3 KiB / 24.9 KB)
+- Line Count: 501 lines
+- Purpose: Backend action controller for the `empleados` module. Processes POST `action=onboard` (atomic employee + hardware + M365 + personal credentials creation), POST `action=editar` (update employee, credentials upsert, assign/unassign hardware & M365), POST `action=import_csv` (bulk CSV import, also invoked from `modules/configuracion/index.php`), and GET `action=baja` (soft-delete employee, release equipment, suspend M365 accounts).
+
+B. CODE BLOAT / SIZE ANALYSIS
+- At 24.9 KB / 501 lines, `guardar.php` is reasonably sized, though ~25–30% could be eliminated by extracting shared helper functions for:
+  - Inline `NEW_SUC` branch creation (duplicated at L31–42 and L142–153)
+  - Personal credentials upsert (`Gmail`, `PC PIN`, `Pass AG`) repeated across `onboard` (L75–85), `editar` (L180–223), and `import_csv` (L395–433)
+  - Equipment assignment logic repeated in `onboard` (L94–102) and `editar` (L243–246)
+
+C. SECURITY (INPUT VALIDATION, XSS, SQL INJECTION, AUTH, CSRF)
+1. [HIGH] Missing CSRF Protection & Destructive GET Endpoint (`action=baja`):
+   - None of the POST handlers (`onboard`, `editar`, `import_csv`) verify a CSRF token.
+   - `action=baja` (L456–494) executes employee deactivation, releases all assigned equipment, and suspends M365 accounts via a `GET` request (`$_GET['id']`).
+2. [MEDIUM] Authentication Present, No RBAC:
+   - Lines 13–16 validate `$_SESSION['user_id']`, redirecting unauthenticated requests to `login.php`. No role/authorization check exists.
+3. [MEDIUM] Weak Input Validation Across All Endpoints:
+   - `onboard` & `editar`: Required fields (`nombre`, `sucursal_id`, `cargo`, `departamento`) are read directly (`$_POST['nombre']`, etc.) without `?? ''` guards, empty-value validation, length bounds, or email validation (`filter_var(..., FILTER_VALIDATE_EMAIL)`).
+   - `import_csv` (L276–283): Only checks `UPLOAD_ERR_OK`. Does not validate file extension (`.csv`), MIME type, or file size before `fopen()`/`fgetcsv()`.
+4. [MEDIUM] Information Disclosure on Exception (L500):
+   - `die("Error procesando Onboarding de Colaborador: " . $e->getMessage());` prints raw PDO/SQL exception messages directly to the browser instead of logging and redirecting with a generic `$_SESSION['flash_error']`.
+5. [GOOD] SQL Injection Protection:
+   - All queries use PDO prepared statements (`$db->prepare(...)` with `?` placeholders) and explicit `(int)` casting for IDs. No SQL injection vulnerabilities found.
+6. [NOTE] Key Management (`config/security.php`):
+   - AES-256-CBC encryption relies on a hardcoded static key (`Security::$encryption_key`).
+
+D. CODE QUALITY (STRUCTURE, DUPLICATE CODE, DEAD CODE, BUGS)
+1. [BUG] `NEW_SUC` Insert Runs Outside Transaction (L31–42 & L142–153):
+   - `INSERT INTO sucursales` executes BEFORE `$db->beginTransaction()` (L64 & L168). If employee/equipment/M365 creation fails and rolls back, an orphaned branch remains committed. It also does not check for duplicate branch names under the same company.
+2. [BUG] `CONCAT(condicion_entrega, ...)` Wipes Data When NULL (L233 & L472):
+   - In both `editar` (L233) and `baja` (L472), `CONCAT(condicion_entrega, ' | Liberado...')` evaluates to `NULL` in MySQL if `condicion_entrega` is `NULL`, erasing the note instead of appending (`COALESCE(condicion_entrega, '')` is needed).
+3. [BUG] Missing Availability & Duplicate Checks on Hardware / M365 Assignment:
+   - `onboard` (L88–103) and `editar` (L240–247) assign `equipo_id` / `nuevo_equipo_id` without verifying `estado = 'Disponible'` (risking double-assignment on race conditions or tampered IDs).
+   - `onboard` (L106–125) inserts into `cuentas_m365` without checking if `m365_correo` already exists (unlike `import_csv` L409–419), and reads `m365_licencia`, `m365_fecha_init`, `m365_ciclo` without fallback defaults.
+   - `editar` (L256–264) assigns `m365_id` without checking if that M365 account is already assigned to another employee or `estado = 'Activa'`.
+   - `editar` (L255, L260) runs `UPDATE cuentas_m365 SET empleado_id = NULL WHERE empleado_id = ?` without `AND estado = 'Activa'`, which also unlinks historical `'Suspendida'` M365 records.
+4. [BUG] `editar` Overwrites Credentials with NULL Instead of Preserving/Deleting (L185–223):
+   - If `pass_gmail_raw`, `pc_pin_raw`, or `pass_ag_raw` is submitted empty, `$*_enc` becomes `null` and `UPDATE credenciales_personales` sets `password_cifrado = NULL` (leaving empty rows in `credenciales_personales`).
+5. [BUG] `import_csv` Duplicate Employees & Fragile Delimiter Detection:
+   - Always runs `INSERT INTO empleados` (L385–392) without checking for existing employees by name/branch—re-uploading a CSV duplicates all employees.
+   - Delimiter detection (L291–293) checks only the very first line of the file; if line 1 is a `#` comment without `;`, it wrongly defaults to `,` even for `;`-delimited files.
+6. Dead Code & Missing Fallbacks:
+   - L49–50 & L56: `$correo_corp`, `$pass_correo_raw`, and `$pass_correo_enc` are assigned/encrypted in `onboard` and never used.
+   - L328 & L442–444: `$errores = 0;` in `import_csv` is never incremented anywhere in the loop.
+   - `baja` (L492) does not set `$_SESSION['flash_success']`.
+   - Unknown `action` or unsupported HTTP method exits silently with a blank 200 response instead of redirecting or returning 400/405.
+
+E. FEATURES (CRUD COMPLETENESS, SEARCH, FILTERS, EXPORT)
+- Handles consolidated Create (`onboard`), Update (`editar`), Bulk CSV Import (`import_csv` with `redirect=config` support), and Soft-Delete (`baja`).
+- Lacks: Reactivate employee action (`alta` / `reactivar`), CSV export endpoint, and duplicate/conflict error reporting in `import_csv`.
+
+F. PERFORMANCE (QUERY EFFICIENCY, PAGINATION)
+- `onboard`, `editar`, and `baja`: Wrap multi-table operations in `beginTransaction()`/`commit()`, executing 3–8 fast PK-indexed statements per request.
+- `import_csv` (L330–436):
+  - Executes `SELECT id FROM empresas` and `SELECT id FROM sucursales` on **every single CSV row** instead of caching them in PHP associative arrays during the import.
+  - Re-prepares all `INSERT`/`UPDATE` statements inside the `while` loop rather than preparing once before the loop.
+  - Runs AES-256 encryption and 5–9 DB queries per row inside one unbounded transaction without `set_time_limit()` for large imports.
+
+G. UI (RESPONSIVE, CONSISTENT WITH OTHER MODULES)
+- N/A (pure PHP controller with no HTML output, except the raw `die(...)` error string on L500). Consistency note: `onboard`, `editar`, and `import_csv` set `$_SESSION['flash_success']` and redirect cleanly, whereas `baja` omits the flash message and errors call `die()` instead of setting `$_SESSION['flash_error']` and redirecting.
+
+================================================================================
+PRIORITY REMEDIATION SUMMARY
+================================================================================
+1. [CRITICAL] Fix Stored XSS in `index.php` `verFicha360()`: stop interpolating `escapeHtml(...)` into `onclick="..."` string literals; pass data via DOM `dataset`/event listeners or safe JS references.
+2. [CRITICAL/HIGH] Stop embedding plaintext passwords & BitLocker keys for all employees 3x per row in `index.php`; fetch decrypted Ficha 360° / Edit secrets on demand via an authenticated JSON endpoint (and remove the dead `$details_id` queries).
+3. [HIGH] Add CSRF tokens to all forms and convert `guardar.php?action=baja` from GET to POST.
+4. [HIGH] Fix `toggleOnboardingM365()` broken `onb_m_date` reference and dynamic department options in `index.php`.
+5. [HIGH] In `guardar.php`, move `NEW_SUC` creation inside the transaction, check hardware/M365 availability before assigning, fix `CONCAT(COALESCE(condicion_entrega, ''), ...)`, deduplicate `import_csv` employees, and replace `die($e->getMessage())` with flash error + redirect.
+6. [MEDIUM] Consolidate the 16 correlated subqueries in `index.php` into `LEFT JOIN` / batched queries and remove duplicate `abrirModal`/`cerrarModal` definitions.
+================================================================================
+
+================================================================================
+SECCION 6: Infrastructure & Network Auditor
+================================================================================
+
+# Code & Security Audit Report: `infraestructura`, `internet`, and `impresoras` Modules
+
+Workspace: `c:\xampp\htdocs\IT_Software`
+Files Audited: 6 (5,764 total lines across the 6 target files)
+
+---
+
+## 1. Cross-Cutting Findings (All Modules)
+
+- **No CSRF Protection**: None of the forms or state-changing endpoints use CSRF tokens. Furthermore, every delete operation across all 3 modules (`delete_dispositivo`, `delete_boveda`, `delete_it_user`, `delete_subred`, `delete_wifi`, `eliminar`, `delete_impresora`) is executed via `HTTP GET`.
+- **No Role-Based Access Control (RBAC)**: Every file only verifies `isset($_SESSION['user_id'])`. Any logged-in user (e.g., `Soporte` or `Desarrollo`) has unrestricted read/write/delete access to all decrypted vault credentials, network hardware passwords, Wi-Fi keys, ISP circuits, printers, and `equipo_it` user accounts (including `Administrador` accounts).
+- **Symmetric Encryption Weaknesses (`config/security.php`)**:
+  - `Security::encrypt()` / `Security::decrypt()` uses `AES-256-CBC` with a **hardcoded static hex key** committed in `config/security.php` (line 10) and **no authentication tag / HMAC** (despite the Bóveda UI badge claiming `AES-256 GCM` on `infraestructura/index.php` line 743).
+  - Plaintext secrets are decrypted in bulk on page load and embedded directly in the HTML DOM (`hidden` spans, `onclick` handlers, `json_encode(...)` payloads, and even `data-search` attributes).
+- **Redundant Dead Flash-Message Blocks**: `includes/header.php` (lines 381–409) renders and `unset()`s `$_SESSION['flash_success']` and `$_SESSION['flash_error']` immediately when included. As a result, the secondary flash banners in `infraestructura/index.php` (lines 340–354), `internet/index.php` (lines 144–164), and `impresoras/index.php` (lines 97–111) never execute.
+- **Raw Database Error Exposure**: All three `guardar.php` controllers catch `PDOException` / `Exception` and surface raw `$e->getMessage()` into flash errors or JSON responses, leaking SQL table/column/constraint details.
+- **SQL Injection Posture**: All database queries across all 6 files are either static `$db->query(...)` strings or PDO prepared statements (`prepare`/`execute`) with `?` placeholders. **No SQL injection vulnerabilities were found** in these 6 files.
+
+---
+
+## 2. File-by-File Audit
+
+### File 1: `c:\xampp\htdocs\IT_Software\modules\infraestructura\index.php`
+- **Line Count**: 2,717 lines
+- **Purpose**: Main multi-tab view (`equipos_red`, `boveda`, `equipo_it`, `matriz_ip`, `wifi`) managing network devices, AES-encrypted IT web vault, IT team members, dynamic CIDR/IPAM subnet mapping, and branch Wi-Fi networks.
+
+#### Security
+- **SQL Injection**: None. Lines 20–126 execute static queries without user input interpolation.
+- **XSS**:
+  - **Stored/DOM XSS in `verDetalleSubred()` (lines 2480–2504)**: `tbody.innerHTML = devices.map(...)` interpolates `${d.ip}`, `${d.nombre}`, `${d.tipo}`, `${d.marca}`, `${d.modelo}`, `${d.serie_mac}`, and `${d.estado}` into `innerHTML` without HTML escaping, including inside `onclick="copiarAlPortapapeles('${d.ip}', this)"`.
+  - **Attribute / JS String Breakout in `onclick` handlers**:
+    - `addslashes()` without `htmlspecialchars()` inside double-quoted `onclick="..."` attributes on lines 1256 (`eliminarSubred`), 1490 (`copiarPassWifi`), 1538 (`mostrarQrWifi`), and 1554 (`eliminarWifi`). Double quotes, `<`, `>`, or newlines in SSIDs, subnet names, or Wi-Fi passwords break the HTML attribute / JS string.
+    - `htmlspecialchars()` without `ENT_QUOTES` inside single-quoted JS string arguments on lines 551 (`ip_direccion`), 892 (`usuario`), 907 (`pass_plain`), 1169 (`segmento_cidr`), and 1182 (`gateway`). A single quote `'` in those fields breaks out of the JS string literal.
+  - **Unvalidated `href` URLs**: Lines 608 (`$d['url_gestion']`), 879 (`$cw['url_acceso']`), and 925 (`$cw['url_acceso']`) render user-supplied URLs into `<a href="..." target="_blank">` without scheme validation (allowing `javascript:` URIs) and without `rel="noopener noreferrer"`.
+- **Password Handling**:
+  - Decrypts all `infraestructura_red`, `credenciales_web`, and `redes_wifi` passwords on every request regardless of the active `$tab`.
+  - Embeds decrypted passwords in hidden `<span>` elements, `onclick` copy buttons, `json_encode($d)` / `json_encode($cw)` / `json_encode($rw)` edit button attributes, and **`data-search` on Wi-Fi rows** (line 1430 — exposing Wi-Fi passwords in searchable DOM attributes).
+  - Line 71 (`SELECT it.*`) fetches `password_hash` from `equipo_it` and serializes it into `editarUsuario(<?= json_encode($user, ...) ?>)` on line 1011.
+  - `generarPasswordWifi()` (line 2638) uses `Math.random()` instead of `crypto.getRandomValues()`.
+
+#### Code Quality
+- **Structure**: Monolithic 2,717-line file mixing PHP queries, CIDR math, 5 full tab views, 7 modals, and ~600 lines of inline JavaScript.
+- **Duplication**: Repeated badge-styling, country-flag detection, and search/filter JS logic across tabs (and duplicated across `internet` and `impresoras`).
+- **Error Handling**: All 6 data-loading `try/catch` blocks (lines 43, 65, 78, 95, 111, 149) silently swallow exceptions and reset arrays to `[]` with zero logging or user notification. If a migration hasn't run (e.g., `redes_wifi` or `credenciales_web.usuario_it_id`), the UI silently looks empty.
+- **Logic Bugs**:
+  - **Missing form fields in `#modalDispositivo` (lines 1581–1671)**: The modal lacks inputs for `estado` and `puertos`, even though `guardar.php` reads both (`$_POST['estado']` defaults to `'Operativo'`, `$_POST['puertos']` defaults to `''`). Editing any device silently resets its `estado` back to `Operativo` and wipes `puertos`.
+  - **IPAM Subnet Matching Bug (lines 216–275)**: `matriz_ip` matches every device from `infraestructura_red` and `equipos` by IP range **only**, ignoring `sucursal_id` and not deduplicating IPs. If two branches both use `192.168.1.0/24`, devices from all branches appear in every branch's subnet card and inflate IP usage counts. Also excludes `impresoras` IPs.
+
+#### Features
+- **CRUD Completeness**: Full Create/Read/Update/Delete for all 5 tabs (except the missing `estado`/`puertos` inputs on `equipos_red` edit).
+- **Search / Filter / Pagination**:
+  - `equipos_red`: Text search, type dropdown, branch dropdown, `TablePaginator` (15/page).
+  - `boveda`: Profile cards (`all`, `shared`, per-user), text search, `TablePaginator` (15/page).
+  - `equipo_it`: Cards only, no search/filter/pagination.
+  - `matriz_ip`: Text search + hardcoded company chips, no pagination.
+  - `wifi`: Text search, branch dropdown, type dropdown, hardcoded company chips, no pagination.
+- **Export**: None (no CSV/Excel/PDF export). Also no UI trigger on this page for `import_infra_csv` / `import_web_csv`.
+
+#### Database
+- **Query Efficiency**: Executes 7 queries unconditionally on every page load, even for inactive tabs.
+- **Joins**: Uses `LEFT JOIN sucursales` and `LEFT JOIN empresas`. `equipo_it` uses a correlated subquery `(SELECT COUNT(*) FROM credenciales_web WHERE usuario_it_id = it.id)` (fine for small IT teams, though `LEFT JOIN ... GROUP BY` is cleaner).
+- **Missing Constraints / Schema Drift**:
+  - `infraestructura_red` and `subredes` are absent from `database/script_gestion_it.sql` and `database/dump.sql` (only in `scratch/setup_infra_db.php` and `scratch/migrate_subredes.php`).
+  - `credenciales_web.usuario_it_id` is absent from `script_gestion_it.sql` and `dump.sql` (added only via `scratch/alter_cred_web.php`).
+  - `infraestructura_red` has no `UNIQUE` constraint or index on `ip_direccion` or `serie_mac`.
+  - `subredes` has no `UNIQUE` constraint on `(sucursal_id, segmento_cidr)`, and its `mascara_subred` column is unused.
+
+---
+
+### File 2: `c:\xampp\htdocs\IT_Software\modules\infraestructura\guardar.php`
+- **Line Count**: 620 lines
+- **Purpose**: Form & GET action handler for `infraestructura_red`, `credenciales_web`, `equipo_it`, CSV bulk imports (`import_infra_csv`, `import_web_csv`), `subredes`, and `redes_wifi`.
+
+#### Security
+- **SQL Injection**: None. All mutations use PDO prepared statements with `?` placeholders.
+- **XSS**: Flash messages pass user inputs through `htmlspecialchars()` (e.g., lines 79, 97, 151, 161, 210, 220, 489, 501, 576, 597).
+- **CSRF / Authorization**: No CSRF token validation; all 5 delete actions execute on `GET`; any authenticated session can create/edit/delete `equipo_it` administrators or vault entries. `delete_it_user` blocks deleting `id == 1`, but `save_it_user` allows changing `id == 1`'s password, email, role, or setting `estado = 'Inactivo'`.
+- **Password Handling**:
+  - `equipo_it` uses `password_hash(..., PASSWORD_BCRYPT)` (lines 203, 217).
+  - `infraestructura_red`, `credenciales_web`, and `redes_wifi` use `Security::encrypt()`.
+  - `save_wifi` trims `$password_wifi` (line 530), which strips intentional leading/trailing spaces from Wi-Fi passphrases.
+
+#### Code Quality
+- **Structure & Duplication**: Straightforward procedural routing on `$action`, but duplicates `UPDATE` SQL queries (password present vs. blank) in 4 sections and repeats redirect/flash blocks. Section comment numbering jumps from `6.` to `8.`.
+- **Error Handling**:
+  - Raw `$e->getMessage()` exposed in `$_SESSION['flash_error']` across all `PDOException` handlers.
+  - `import_infra_csv` (lines 262–348): Accepts only `$ext === 'csv'` despite error text mentioning Excel (`.xlsx` uploads silently import 0 rows with a "success" message). Per-row DB exceptions are silently swallowed (line 369).
+  - `import_web_csv` (lines 385–453): Does not validate file extension or size, loads full file via `file_get_contents()`, and silently ignores all row exceptions (line 444).
+  - Missing input validation: No `filter_var(..., FILTER_VALIDATE_IP)` for device/gateway IPs, no CIDR format check on `segmento_cidr`, no `filter_var(..., FILTER_VALIDATE_EMAIL)` on `equipo_it.email`, and no ENUM whitelisting.
+
+#### Features & Database
+- **CRUD Completeness**: Full create/update/delete support for all 5 sub-modules plus CSV import for devices and vault.
+- **Database**: Does not validate `rowCount()` on `UPDATE`/`DELETE` (deleting a nonexistent ID reports success). `save_dispositivo` allows `sucursal_id = null`, while `save_subred` and `save_wifi` require `sucursal_id`.
+
+---
+
+### File 3: `c:\xampp\htdocs\IT_Software\modules\internet\index.php`
+- **Line Count**: 1,381 lines
+- **Purpose**: UI for managing ISP providers & WAN links (`proveedores_internet`), including KPI cards, dynamic company filter chips, dark IP-configuration terminal cards, add/edit/delete modals, and an interactive ICMP Ping diagnostic modal (`ping.php`).
+
+#### Security
+- **SQL Injection**: None. Uses static queries (lines 12, 14–19, 22–33).
+- **XSS**:
+  - **DOM XSS in Ping Console (lines 1224, 1281, 1303, 1348)**:
+    - Line 1281 interpolates `${host}` and `${label}` directly into `term.innerHTML` without `escapeHtml()` (even though `escapeHtml()` is defined on line 1353 and used for ping output lines!).
+    - Line 1303 interpolates `${data.error}` raw into `term.innerHTML` (`ping.php` line 46 reflects `$hostClean` inside `error`).
+    - Line 1348 interpolates `${err.message}` raw into `term.innerHTML`.
+    - Line 1224 interpolates `${item.host}` and `${item.label}` raw into `btn.innerHTML`.
+  - **Attribute / JS String Breakout (`addslashes()` without `htmlspecialchars()`)**:
+    - Lines 352, 378, 383, 401, 406, 432, 437, 452, 462, 512 use `<?= addslashes(...) ?>` inside double-quoted `onclick="..."` attributes. A double quote `"` or `<` in `proveedor`, `numero_cliente`, `ip_publica`, `puerta_enlace`, etc. can break out of the HTML attribute. Line 383 additionally uses JS template backticks `` `<?= addslashes($configCompleta) ?>` `` without escaping backticks or `${...}`.
+- **Password Handling**: N/A (no passwords stored or displayed).
+
+#### Code Quality
+- **Duplication**: `#modal-nuevo-enlace` (lines 529–730) and `#modal-editar-enlace` (lines 733–925) duplicate ~200 lines of form markup instead of sharing a single modal.
+- **Data/Form Bugs**:
+  - **Missing `vlan_id` and `tipo_ip` fields in both modals**: `proveedores_internet` and `internet/guardar.php` both support `vlan_id` and `tipo_ip`, but neither modal includes inputs for them. Editing an existing record overwrites `tipo_ip` to `'IP Fija / Estática'` and `vlan_id` to `NULL`.
+  - **Missing ENUM options**: DB `moneda` ENUM includes `'SVC'` (`script_gestion_it.sql` line 203) and `estado` ENUM includes `'Suspendido'` (line 204), neither of which appears in the modal `<select>` dropdowns.
+  - **Hardcoded KPI**: Line 207 hardcodes `"Fibra"` instead of computing actual transmission media statistics.
+  - **Unused `header.php` redundancy**: Flash block on lines 144–164 is dead code because `header.php` already consumes and unsets flash session keys.
+
+#### Features
+- **CRUD Completeness**: Full Create/Read/Update/Delete (delete via modal -> GET `guardar.php?action=eliminar`), plus real-time ICMP ping testing via `ping.php` (which validates IP/hostname via `filter_var` and escapes via `escapeshellarg`).
+- **Search / Filter**: Live search over `data-search` + dynamic company filter chips generated from `$empresas` (consistent with DB values). No pagination and no export.
+
+#### Database
+- **Query Efficiency**: 3 clean queries (`empresas`, `sucursales`, `proveedores_internet` joined to `empresas` and `sucursales`). Line 228 runs `array_filter($enlaces, ...)` inside `foreach ($empresas)` in PHP (negligible at current scale, though avoidable via SQL `GROUP BY`).
+- **Missing Constraints**: `proveedores_internet` stores both `empresa_id` and `sucursal_id` (denormalized; `sucursales` already belongs to `empresas`), with no constraint enforcing `sucursales.empresa_id = proveedores_internet.empresa_id`. Also `proveedores_internet` is missing from `database/dump.sql`.
+
+---
+
+### File 4: `c:\xampp\htdocs\IT_Software\modules\internet\guardar.php`
+- **Line Count**: 203 lines
+- **Purpose**: POST/GET controller for `proveedores_internet` (`crear`, `editar`, `eliminar`, `get`), supporting both standard form redirects and AJAX JSON responses via `responder()`.
+
+#### Security
+- **SQL Injection**: None. All queries use PDO prepared statements (`?` placeholders).
+- **XSS (Flash Message Stored/Reflected XSS via `header.php`)**:
+  - Lines 105, 160, and 181 pass unescaped `$proveedor` / `$ispName` into `responder(..., "Enlace de internet de '$proveedor' ...")`. Although `internet/index.php` lines 148/159 wrap flash output in `htmlspecialchars()`, **`includes/header.php` (lines 387, 402) renders and unsets `$_SESSION['flash_success']` BEFORE `internet/index.php` reaches line 144, and `header.php` outputs `$_SESSION['flash_success']` WITHOUT `htmlspecialchars()`!** Therefore, HTML/JS in `$proveedor` executes immediately in `header.php`.
+- **CSRF / Authorization**: No CSRF tokens; `eliminar` runs via `GET`. No RBAC check.
+- **Error Disclosure**: Line 202 returns raw `$e->getMessage()` on exception.
+- **Password Handling**: N/A.
+
+#### Code Quality & Database
+- **Structure**: Clean `responder()` abstraction, though lines 50–71 and 115–136 duplicate the 22-field `$_POST` extraction.
+- **Validation Bugs**:
+  - Line 68 & 133: `!empty($_POST['costo_mensual'])` converts `'0'` / `'0.00'` into `null`.
+  - No validation of IP formats (`ip_publica`, `mascara_subred`, `puerta_enlace`, `dns_*`), ENUM values, or that `sucursal_id` belongs to `empresa_id`.
+  - `action=get` (lines 185–196) is implemented but unused by `internet/index.php`.
+  - No `rowCount()` check on `editar` / `eliminar`.
+
+---
+
+### File 5: `c:\xampp\htdocs\IT_Software\modules\impresoras\index.php`
+- **Line Count**: 723 lines
+- **Purpose**: View and management interface for Printers by Branch (`impresoras`), with KPI cards, search & multi-filter controls, credential toggle/copy, web UI links, and add/edit modal.
+
+#### Security
+- **SQL Injection**: None. Uses static `$db->query(...)` calls (lines 19–38).
+- **XSS**:
+  - Line 345 (`ip_direccion`) and line 364 (`usuario_admin`): `htmlspecialchars()` without `ENT_QUOTES` inside single-quoted JS string arguments (`copiarTexto('...', this)`). Single quotes `'` allow JS string breakout.
+  - Line 377 (`pass_plain`) and line 433 (`nombre`): `addslashes()` without `htmlspecialchars()` inside double-quoted `onclick="..."` attributes. Double quotes `"` or `<` allow attribute breakout.
+  - Line 348 & 416: `href="http://<?= htmlspecialchars($imp['ip_direccion']) ?>"` safely forces `http://` and includes `rel="noopener noreferrer"`, though `ip_direccion` is not validated as an IP/hostname.
+  - Line 425: `abrirModalImpresora(<?= json_encode($imp, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>)` is properly escaped.
+- **Password Handling**:
+  - Decrypts all printer admin passwords upfront (line 46) and renders plaintext passwords in hidden DOM spans (`#imp_pass_plain_*`, line 373), `copiarTexto` `onclick` (line 377), AND inside the `json_encode($imp)` payload on line 425 (even though the edit modal resets `imp_pass` to blank).
+
+#### Code Quality, Features & Database
+- **Dead Flash Block**: Lines 97–111 are dead code (`header.php` already consumes and unsets flash messages).
+- **Search / Filter / Export**: Has text search, branch dropdown, connection type dropdown, status dropdown, and company chip buttons. **No pagination** (`TablePaginator` is omitted), **no empty-filter state row** when JS hides all rows, and **no export**.
+- **Database**: Joins `impresoras` -> `sucursales` -> `empresas`. `impresoras` table is only in `database/migration_impresoras_tenants.sql` (not in `dump.sql` or `script_gestion_it.sql`), and lacks indexes on `estado`, `tipo_conexion`, `ip_direccion`, and unique constraints on `numero_serie` or `ip_direccion`.
+
+---
+
+### File 6: `c:\xampp\htdocs\IT_Software\modules\impresoras\guardar.php`
+- **Line Count**: 120 lines
+- **Purpose**: POST/GET controller for `impresoras` (`save_impresora` and `delete_impresora`).
+
+#### Security
+- **SQL Injection**: None. Uses PDO prepared statements (`?` placeholders) for `UPDATE`, `INSERT`, and `DELETE`.
+- **XSS**: Flash messages escape `$nombre` with `htmlspecialchars()`.
+- **CSRF / Authorization**: No CSRF validation; `delete_impresora` runs on `GET`. No RBAC check.
+- **Error Disclosure**: Lines 96 and 113 expose raw `$e->getMessage()` in `$_SESSION['flash_error']`.
+- **Password Handling**: Encrypts `password_admin` via `Security::encrypt()` when non-empty and preserves existing `password_cifrado` when blank on edit. Trims `password_admin` (line 31), silently stripping leading/trailing spaces; also provides no way to clear an existing password back to `NULL`.
+
+#### Code Quality & Database
+- **Inconsistent `NULL` Handling**: On `INSERT` (line 89), empty `$marca`, `$modelo`, `$numero_serie` become `null` via `?: null`. On `UPDATE` (lines 56, 71), they are passed directly without `?: null`, persisting empty strings `''` instead of `NULL`.
+- **Validation / Robustness**: No IP validation (`ip_direccion`), no ENUM whitelisting (`tipo`, `tipo_conexion`, `estado`), no `sucursal_id` existence check prior to query, and no `rowCount()` check on update/delete.
+
+---
+
+## 3. Specific Assessment: Is the `impresoras` Module Complete and Consistent?
+
+**Partially complete, with several functional and consistency bugs:**
+
+1. **Broken Connection Filter Option (`modules/impresoras/index.php` line 202 vs line 514 & DB ENUM)**:
+   - The filter `<select id="filtroConexionImp">` (line 202) uses `value="Servidor de Impresión"`, whereas the modal `<select>` (line 514) and DB ENUM (`migration_impresoras_tenants.sql` line 27) use `'Servidor de Impresión / Compartida'`.
+   - Because `filtrarImpresoras()` (line 701) checks strict equality (`fConexion === conexion`), filtering by `"Servidor de Impresión"` **always returns 0 matches**.
+2. **Hardcoded Company Filter Chips (`modules/impresoras/index.php` lines 222–230)**:
+   - Chips are hardcoded to `'SUMINISTROS INTEGRALES'`, `'MASTERTEC'`, and `'CENTRO DE PINTURA'` instead of being loaded from `empresas` (unlike `internet/index.php` lines 227–235). In `database/script_gestion_it.sql` and `database/dump.sql`, company #2 is named `'Suministros'` — so `'SUMINISTROS'.includes('SUMINISTROS INTEGRALES')` evaluates to `false` and shows **0 printers**.
+3. **Disconnected from IPAM (`matriz_ip`)**:
+   - `modules/infraestructura/index.php` (lines 100–113) maps IPs from `infraestructura_red` and `equipos`, but **does not query `impresoras`**. Network printers with static IPs do not appear in the Subnet / IP Matrix.
+4. **Missing Pagination & Empty-Filter State**:
+   - Unlike `infraestructura` (`equipos_red` and `boveda`), `impresoras/index.php` omits `TablePaginator` and omits an empty-state message when client-side filters match zero rows.
+5. **Inconsistent `NULL` persistence in `guardar.php`**: `INSERT` stores `NULL` for empty `marca`/`modelo`/`numero_serie`, whereas `UPDATE` stores `''`.
+6. **Schema Packaging**: `impresoras` is only defined in `database/migration_impresoras_tenants.sql`, not in `database/script_gestion_it.sql` or `database/dump.sql`.
+
+---
+
+## 4. Specific Assessment: Is the Wi-Fi Module Working Correctly?
+
+**Basic CRUD works, but there are 4 concrete functional/security bugs:**
+
+1. **Broken Wi-Fi QR Code Payload (`infraestructura/index.php` lines 2650–2651)**:
+   - `mostrarQrWifi()` builds `WIFI:S:${encodeURIComponent(ssid)};T:WPA;P:${encodeURIComponent(pass)};;` and then calls `encodeURIComponent(qrData)` a **second time** when building the QR URL. Any SSID or password containing spaces or special characters (such as `!@#$%&*` generated by `generarPasswordWifi()`) gets percent-encoded inside the `WIFI:` string (e.g., `%21%40`), breaking mobile QR auto-connect.
+   - Additionally, `T:WPA` is hardcoded even when `seguridad` (passed as an unused argument to `mostrarQrWifi`) is WEP or Open.
+2. **External Leakage of Wi-Fi Credentials in QR Generation (line 2651)**:
+   - QR codes are generated by sending plaintext SSID and password in a GET query string to `https://api.qrserver.com/v1/create-qr-code/...`. This leaks internal Wi-Fi credentials to a third-party service and fails in offline/intranet environments.
+3. **Hardcoded Company Filter Chip Mismatch (lines 1316–1324)**:
+   - Same bug as `impresoras`: hardcodes `'SUMINISTROS INTEGRALES'`, `'MASTERTEC'`, and `'CENTRO DE PINTURA'` instead of querying `empresas`. Fails to match if the company is named `'Suministros'`.
+4. **Plaintext Passwords in Search Attribute & Trimmed Passwords**:
+   - Line 1430 includes `$rw['pass_plain']` inside `<tr data-search="...">`, exposing decrypted Wi-Fi passwords in plain DOM attributes.
+   - `guardar.php` line 530 applies `trim()` to `password_wifi`, altering passwords with intentional leading/trailing spaces.
+   - Like `impresoras`, the Wi-Fi table lacks `TablePaginator` and an empty-filter row when JS filters match 0 records.
+
+---
+
+## 5. Prioritized Recommendations
+
+1. **Fix XSS & URL Injection Immediately**:
+   - Escape all values in `verDetalleSubred()` (`infraestructura/index.php`) using `escapeHtml()` before `innerHTML` assignment.
+   - Replace `addslashes()` + `htmlspecialchars()` in `onclick="..."` attributes with `htmlspecialchars(json_encode($val), ENT_QUOTES, 'UTF-8')` or `data-*` attributes + `addEventListener`.
+   - Escape `$proveedor` / `$ispName` in `internet/guardar.php` (or escape flash messages in `includes/header.php` instead of relying on callers).
+   - Escape `host`, `label`, `data.error`, and `err.message` in `internet/index.php` ping console `innerHTML`.
+   - Validate `http://`/`https://` schemes on `url_gestion` / `url_acceso` links and add `rel="noopener noreferrer"`.
+2. **Add CSRF Protection & Convert Deletes to `POST`**:
+   - Generate per-session CSRF tokens and verify them on all `guardar.php` mutations; replace all `GET` delete links with `POST` forms.
+3. **Enforce RBAC & Reduce Secret Exposure**:
+   - Restrict `boveda`, `equipo_it`, and plaintext password decryption to authorized roles (`Administrador`), and fetch/decrypt passwords on-demand via authenticated POST instead of pre-loading every secret into HTML.
+   - Move the encryption key in `config/security.php` out of source control into environment configuration, and migrate to authenticated encryption (AES-256-GCM or AES-256-CBC + HMAC-SHA256) to match the UI's claims.
+4. **Fix Functional Bugs**:
+   - Add `estado` and `puertos` fields to `#modalDispositivo` (`infraestructura/index.php`).
+   - Add `vlan_id` and `tipo_ip` fields (and missing `SVC` / `Suspendido` options) to `internet/index.php` modals, or unify add/edit into one modal.
+   - Fix `filtroConexionImp` value (`'Servidor de Impresión / Compartida'`) and dynamically populate company filter chips from `$empresas` in both `impresoras` and `infraestructura` (`matriz_ip` & `wifi`).
+   - Fix `mostrarQrWifi()` double-encoding (escape `\`, `;`, `,`, `:` per ZXing `WIFI:` spec instead of `encodeURIComponent`) and generate QR codes locally via a JS library (e.g., `qrcodejs`) instead of `api.qrserver.com`.
+   - Filter `matriz_ip` device matching by `sucursal_id` (and include `impresoras` IPs).
+   - Remove dead flash blocks in the 3 `index.php` files (or standardize flash rendering in one place) and stop leaking raw `$e->getMessage()` in `guardar.php`.
+
+================================================================================
+SECCION 7: Config Module & Database Auditor
+================================================================================
+
+================================================================================
+SECURITY, CODE, AND DATABASE SCHEMA AUDIT REPORT
+Workspace: c:\xampp\htdocs\IT_Software
+Scope: modules/configuracion/*, modules/tareas/*, database/*.sql (+ cross-module checks)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PER-FILE AUDIT (PATH, LINE COUNT, PURPOSE, FINDINGS)
+--------------------------------------------------------------------------------
+
+1) c:\xampp\htdocs\IT_Software\modules\configuracion\index.php
+   - Line count: 653 lines
+   - Purpose: System configuration hub providing CSV/Excel bulk import forms (Equipos, Infraestructura, Personal, Bóveda IT), system branding customization, database backup download trigger, SQL restore modal, and full database reset modal.
+   - Findings:
+     * Missing Role-Based Access Control (RBAC): Includes `includes/header.php` which only checks `isset($_SESSION['user_id'])`. Any authenticated user (including `Soporte` or `Desarrollo` roles in `equipo_it`) can access system branding, backup, restore, and reset controls.
+     * Missing CSRF Protection: None of the 7 forms (4 CSV imports, `guardar_sistema.php`, `restore.php`, `reset.php`) include a CSRF token.
+     * External CDN without SRI: Line 573 loads `https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js` using unpinned `xlsx-latest` and no `integrity` (Subresource Integrity) attribute.
+     * Flash Message Key Mismatch: Reads `$_SESSION['flash_sys_ok']` / `$_SESSION['flash_sys_err']` (lines 271-272), whereas `equipos/guardar.php` and `empleados/guardar.php` set `flash_success` / `flash_error` (rendered by `header.php`), `backup.php` sets `flash_error`, and `infraestructura/guardar.php` sets both—causing inconsistent or duplicate banners.
+     * Dead/Minor UI Issues: `$tab_activa = $_GET['tab'] ?? 'todos';` (line 9) is unused; invalid Tailwind classes `hover:bg-emerald-550` (line 352) and `border-rose-250` (line 387).
+
+2) c:\xampp\htdocs\IT_Software\modules\configuracion\sucursales.php
+   - Line count: 467 lines
+   - Purpose: Master catalog UI for managing Companies (`empresas`) and Branches (`sucursales`), displaying KPIs, per-branch collaborator/hardware counts, client-side filtering, and modals to create/edit/delete branches and create companies.
+   - Findings:
+     * Missing RBAC: Only relies on `header.php` session check (`user_id`), no admin role enforcement.
+     * Stored XSS Risk in Inline JS Handlers:
+       - Line 159: `onclick="filtrarPorEmpresa('<?= htmlspecialchars($emp['nombre']) ?>', this)"` omits `ENT_QUOTES`; a single quote in an enterprise name breaks out of the JS string inside the HTML attribute.
+       - Line 271: `onclick="confirmarEliminarSucursal(..., '<?= addslashes($s['nombre']) ?>', ...)"` uses `addslashes()` inside an HTML attribute (`"` breaks out of the attribute).
+     * Hard Dependency on Missing Schema Table: Line 21 runs `(SELECT COUNT(*) FROM infraestructura_red WHERE sucursal_id = s.id) AS cant_infra`. Because `infraestructura_red` does not exist in any `database/*.sql` script, a fresh install from `database/` crashes this page with SQLSTATE 42S02 (table not found).
+     * Incomplete UI / Cascade Risk:
+       - Backend (`guardar_sucursales.php`) implements `editar_empresa` and `eliminar_empresa`, but `sucursales.php` provides no UI buttons/modals for them.
+       - `confirmarEliminarSucursal()` checks `colabs > 0 || equipos > 0` in JS (line 425) and redirects via GET link (`guardar_sucursales.php?action=eliminar_sucursal&id=...`), omitting checks for `cant_infra`, `impresoras`, `redes_wifi`, `subredes`, or `proveedores_internet`.
+       - Lines 247 & 255 link to `../empleados/index.php` and `../equipos/index.php` without passing `?sucursal_id=<?= $s['id'] ?>`.
+
+3) c:\xampp\htdocs\IT_Software\modules\configuracion\guardar_sistema.php
+   - Line count: 30 lines
+   - Purpose: POST handler that updates `config/system_config.php` with a custom `system_name`.
+   - Findings:
+     * Missing RBAC & CSRF: Only checks `isset($_SESSION['user_id'])`; no role check (`Administrador`) and no CSRF token.
+     * Config File Write Risks: Uses `file_put_contents()` with `var_export($system_name, true)` (line 20-23). While `var_export` prevents PHP code injection via string breakout, there is no `LOCK_EX` flag (concurrent write corruption), no max-length validation on `$system_name`, and writing executable `.php` files at runtime can serve stale data under OPcache.
+
+4) c:\xampp\htdocs\IT_Software\modules\configuracion\guardar_sucursales.php
+   - Line count: 222 lines
+   - Purpose: CRUD controller for `sucursales` and `empresas` supporting standard POST/GET redirects and JSON/AJAX responses.
+   - Findings:
+     * Missing RBAC & CSRF: Any authenticated user can create/modify/delete companies and branches; no CSRF token validation.
+     * State-Changing GET Endpoints: `eliminar_sucursal` (line 159) and `eliminar_empresa` (line 196) execute `DELETE` operations via HTTP `GET`.
+     * Open Redirect Vulnerability: Lines 54 and 116 accept `$_POST['redirect']` without validating that it is a relative local path, passing it directly to `header("Location: $redirect")` (line 41).
+     * Incomplete Deletion Guards & Silent Cascade Data Loss: `eliminar_sucursal` checks `empleados`, `equipos`, and `infraestructura_red` (lines 166-178), but ignores `impresoras`, `redes_wifi`, `subredes`, and `proveedores_internet`—all of which have `ON DELETE CASCADE` on `sucursal_id` and will be silently wiped when a branch is deleted.
+     * Missing Table Dependency: Line 176 queries `infraestructura_red`, absent from `database/*.sql`.
+     * Minor Validation/Info Leak Gaps: `editar_empresa` (lines 140-152) does not check for duplicate company names (unlike `crear_empresa`); line 221 exposes raw `$e->getMessage()` in flash/JSON responses.
+
+5) c:\xampp\htdocs\IT_Software\modules\configuracion\backup.php
+   - Line count: 83 lines
+   - Purpose: Exports the entire active MySQL database (`SHOW TABLES`, `SHOW CREATE TABLE`, `SELECT *`) as a downloadable `.sql` file.
+   - Findings:
+     * Missing RBAC: Any logged-in `Soporte` or `Desarrollo` user can dump the entire database, including `equipo_it.password_hash` and all AES-256 encrypted credentials across `credenciales_*`, `cuentas_m365`, `redes_wifi`, `impresoras`, and `tenants`.
+     * Memory Exhaustion Risk: Concatenates the entire database dump into `$sqlScript` in PHP memory rather than streaming to `php://output`.
+     * Flash Key Mismatch: Line 80 sets `$_SESSION['flash_error']` while `configuracion/index.php` reads `$_SESSION['flash_sys_err']` (rendered in `header.php` instead, if redirected properly).
+     * Identifier Escaping / Portability: Table and column names from `SHOW TABLES` / `SELECT *` are wrapped in backticks directly (safe unless identifiers contain backticks); `rowCount()` on `SELECT` is driver-dependent (works in buffered MySQL PDO).
+
+6) c:\xampp\htdocs\IT_Software\modules\configuracion\restore.php
+   - Line count: 93 lines
+   - Purpose: Accepts an uploaded `.sql` file via POST, drops all existing tables in the database, and executes the uploaded SQL script.
+   - Findings:
+     * CRITICAL - Arbitrary SQL Execution / Remote Takeover & Potential RCE:
+       - Any authenticated user (no `Administrador` role check) and any external site via CSRF (no CSRF token) can upload a `.sql` file.
+       - Extension-only validation (`pathinfo($fileName, PATHINFO_EXTENSION) !== 'sql'`, lines 41-42) is trivially bypassed.
+       - Line 58 enables `PDO::ATTR_EMULATE_PREPARES = 1` and line 74 passes the entire raw file directly to `$pdo->exec($sqlContent)`.
+       - An attacker can execute arbitrary SQL statements: overwrite `equipo_it` to take over admin accounts, inject stored XSS, or—depending on MySQL server privileges and `secure_file_priv` (common in default XAMPP setups)—write arbitrary files (e.g., PHP webshell via `INTO OUTFILE`) or read local files (`LOAD_FILE()`).
+     * CRITICAL - Destructive Non-Transactional Drop Before Execution:
+       - Lines 64-71 execute `DROP TABLE IF EXISTS` for every table in the database *before* executing `$sqlContent`. Because DDL statements in MySQL trigger implicit commits, any syntax error or failure in `$sqlContent` leaves the database wiped/corrupted with no rollback possible.
+     * Environment Guard Bypass: `configuracion/index.php` (line 466) hides the restore upload form when `!IS_LOCAL`, but `restore.php` itself never checks `IS_LOCAL`, allowing direct POST requests in production.
+
+7) c:\xampp\htdocs\IT_Software\modules\configuracion\reset.php
+   - Line count: 47 lines
+   - Purpose: Truncates all database tables except the user accounts table to reset system data.
+   - Findings:
+     * CRITICAL BUG - Complete Admin Lockout (`usuarios` vs `equipo_it`):
+       - Line 30 attempts to preserve user accounts with: `if ($table !== 'usuarios') { $pdo->exec("TRUNCATE TABLE `$table`"); }`.
+       - There is NO `usuarios` table in the schema; user authentication uses `equipo_it` (`login.php:34`).
+       - Consequently, `reset.php` TRUNCATES `equipo_it` along with every other table, deleting all administrator and staff accounts and permanently locking everyone out of the application—directly contradicting the UI promise ("La cuenta de administrador actual no se borrará") and success message ("Tu usuario de acceso se mantuvo intacto").
+     * CRITICAL Security Deficiencies:
+       - No RBAC check (any non-admin IT user can trigger a full database wipe).
+       - No CSRF token (a cross-site POST form on any external page can trigger a full DB wipe if an authenticated user visits it).
+       - No server-side password re-verification or confirmation phrase.
+       - Truncates master catalog tables (`empresas`, `sucursales`) alongside transactional data, leaving the app unusable without re-seeding.
+
+8) c:\xampp\htdocs\IT_Software\modules\tareas\index.php
+   - Line count: 366 lines
+   - Purpose: Displays IT tasks/tickets (`tareas_it`) with status filters, client-side text search, a detail modal, and a creation modal for one-off or recurring tasks.
+   - Findings:
+     * State-Changing GET Links: Lines 154, 158, 339, and 341 trigger status transitions (`Iniciar`, `Completar`) via `<a>` GET links to `guardar.php?action=status&id=...` without CSRF protection.
+     * JS Boolean Bug for `es_repetitiva`: Line 328 checks `if (t.es_repetitiva)` in JavaScript. When PDO returns `TINYINT(1)` as string `"0"` (e.g., depending on driver/stringify settings), `"0"` is truthy in JS—unlike PHP's `if ($t['es_repetitiva'])` at line 110—causing non-recurring tasks to display "Cada null días".
+     * Inline JSON-in-Attribute Escaping: Lines 109 & 149 embed `json_encode($t, JSON_HEX_APOS | JSON_HEX_QUOT)` inside single-quoted `onclick` attributes without `JSON_HEX_TAG | JSON_HEX_AMP`; also exposes `asignado_email` unnecessarily in HTML attributes.
+     * Missing Features / Lifecycle Gap: No edit or delete UI for tasks; no pagination; tasks past `fecha_limite` are never automatically transitioned to `'Vencida'` unless updated elsewhere.
+
+9) c:\xampp\htdocs\IT_Software\modules\tareas\guardar.php
+   - Line count: 99 lines
+   - Purpose: Processes creation of IT tasks (`action=add`) and status transitions (`action=status`), including auto-generating the next occurrence for recurring tasks upon completion.
+   - Findings:
+     * State-Changing GET & Missing CSRF: `action=status` executes inside the `else` branch of `$_SERVER['REQUEST_METHOD'] === 'POST'` (accepting GET), with no CSRF protection.
+     * Recurring Task Duplication Bug: Line 64 checks `if ($nuevo_estado === 'Completada' && $tarea['es_repetitiva'] && !empty($tarea['frecuencia_dias']))` without checking `$tarea['estado'] !== 'Completada'`. Repeating or re-requesting the `Completada` GET URL creates duplicate child tasks every time.
+     * Missing Input Validation:
+       - `add` does not validate non-empty `$titulo`, valid `YYYY-MM-DD` `$fecha_limite`, or positive `$frecuencia_dias >= 1` (negative values like `-5` produce `strtotime('+-5 days')` or past deadlines).
+       - Does not verify `$asignado_a` exists in `equipo_it` before insert.
+     * Poor Error Handling & Feedback: Line 98 calls `die("Error procesando tareas: " . $e->getMessage())`, leaking raw SQL exceptions and breaking UI flow; no `flash_success` messages are set on success; no `edit` or `delete` actions exist.
+
+10) c:\xampp\htdocs\IT_Software\database\script_gestion_it.sql
+    - Line count: 258 lines
+    - Purpose: Main database schema creation script and initial seed data (`empresas`, `sucursales`, `equipo_it`).
+    - Findings:
+      * CRITICAL SYNTAX ERROR (Lines 178-179): Table `tareas_it` ends at line 178 with `INDEX idx_fecha_limite (fecha_limite)` and immediately starts the `proveedores_internet` comment on line 179—missing the closing `);` / `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`. Executing this script fails at line 182.
+      * Incomplete Schema: Includes 13 tables (`empresas`, `sucursales`, `equipo_it`, `empleados`, `credenciales_personales`, `equipos`, `asignaciones`, `credenciales_equipos`, `credenciales_web`, `cuentas_m365`, `tareas_it`, `proveedores_internet`, `redes_wifi`), but is missing `impresoras`, `tenants`, `infraestructura_red`, `subredes`, `recepciones_equipos`, and `credenciales_web.usuario_it_id`.
+      * Comment Numbering Typo: Line 215 labels `redes_wifi` as `-- 10. Tabla de Redes Wi-Fi por Sede` (duplicate of section 10 `cuentas_m365`).
+      * Hardcoded Seed Password Hashes: Lines 257-258 insert default `equipo_it` admin accounts using `INSERT IGNORE`.
+
+11) c:\xampp\htdocs\IT_Software\database\migration_redes_wifi.sql
+    - Line count: 40 lines
+    - Purpose: Migration script to add `redes_wifi` table for branch Wi-Fi credentials.
+    - Findings:
+      * Redundant with `script_gestion_it.sql`: `redes_wifi` is already defined in `script_gestion_it.sql` (lines 217-234), with minor DDL differences (`INT(11)` and `NOT NULL DEFAULT CURRENT_TIMESTAMP` vs `INT` and `DEFAULT CURRENT_TIMESTAMP`).
+      * Missing `UNIQUE(sucursal_id, ssid)` constraint (duplicate SSIDs per branch are allowed).
+
+12) c:\xampp\htdocs\IT_Software\database\migration_impresoras_tenants.sql
+    - Line count: 68 lines
+    - Purpose: Migration script creating `impresoras` (branch printers) and `tenants` (Microsoft 365 / cloud tenants).
+    - Findings:
+      * Valid SQL syntax and consistent with `modules/impresoras/*` and `modules/credenciales/*`.
+      * Missing Unique Constraints: `impresoras.numero_serie` is not `UNIQUE` (unlike `equipos.service_tag_sn`), and `tenants.correo` / `tenants.tenant_id_cloud` have no `UNIQUE` constraints.
+      * Cascade Behavior: `impresoras.sucursal_id` uses `ON DELETE CASCADE`, which is not guarded against in `guardar_sucursales.php?action=eliminar_sucursal`.
+
+(Additional SQL file found in `database/`):
+13) c:\xampp\htdocs\IT_Software\database\dump.sql (372 lines)
+    - MariaDB dump dated `2026-07-30` containing 11 tables and sample data; heavily outdated compared to `script_gestion_it.sql` and the modules (see Section 5).
+
+--------------------------------------------------------------------------------
+2. BACKUP & RESTORE SECURITY ANALYSIS
+--------------------------------------------------------------------------------
+* `backup.php` is NOT sufficiently secure:
+  - Lacks RBAC (`Administrador` role check); any authenticated `equipo_it` user can exfiltrate the entire database, password hashes, and all AES-256 encrypted secrets (and `config/security.php` uses a hardcoded static key in source code).
+  - Buffers the full dump in memory (DoS risk on large datasets).
+* `restore.php` is CRITICALLY INSECURE and EXPLOITABLE:
+  - Lacks RBAC and CSRF protection: any authenticated user—or a third-party webpage via CSRF—can submit a `.sql` upload.
+  - Executes arbitrary SQL via `$pdo->exec($sqlContent)` with `PDO::ATTR_EMULATE_PREPARES = 1` and only validates the `.sql` filename extension.
+  - Allows complete database destruction/replacement, admin account takeover (`equipo_it` overwrite), stored XSS injection, and potentially server-side file write/read (`INTO OUTFILE` / `LOAD_FILE`) depending on MySQL privileges/XAMPP `secure_file_priv`.
+  - Drops all existing tables before running `$sqlContent` outside a transaction, guaranteeing total data loss if the uploaded SQL fails mid-script.
+  - Does not enforce `IS_LOCAL` server-side even though the UI modal implies local-only restoration.
+
+--------------------------------------------------------------------------------
+3. RESET FUNCTIONALITY ANALYSIS (`reset.php`)
+--------------------------------------------------------------------------------
+* Extremely dangerous and functionally broken:
+  - Protected ONLY by `isset($_SESSION['user_id'])` and `$_SERVER['REQUEST_METHOD'] === 'POST'`. No `Administrador` role check, no CSRF token, and no password re-authentication.
+  - **Lockout Bug**: Line 30 excludes `$table !== 'usuarios'`, but the user table is `equipo_it`. `reset.php` therefore truncates `equipo_it`, wiping all admin accounts and locking everyone out immediately.
+  - Truncates `empresas` and `sucursales` catalog tables as well, leaving the system unconfigured.
+
+--------------------------------------------------------------------------------
+4. ALL TABLES FOUND ACROSS ALL SQL FILES (`database/*.sql`)
+--------------------------------------------------------------------------------
+15 distinct tables exist across `database/*.sql`:
+1.  `empresas`                  (script_gestion_it.sql, dump.sql)
+2.  `sucursales`                (script_gestion_it.sql, dump.sql)
+3.  `equipo_it`                 (script_gestion_it.sql, dump.sql)
+4.  `empleados`                 (script_gestion_it.sql, dump.sql)
+5.  `credenciales_personales`   (script_gestion_it.sql, dump.sql)
+6.  `equipos`                   (script_gestion_it.sql, dump.sql)
+7.  `asignaciones`              (script_gestion_it.sql, dump.sql)
+8.  `credenciales_equipos`      (script_gestion_it.sql, dump.sql)
+9.  `credenciales_web`          (script_gestion_it.sql, dump.sql)
+10. `cuentas_m365`              (script_gestion_it.sql, dump.sql)
+11. `tareas_it`                 (script_gestion_it.sql [broken syntax], dump.sql)
+12. `proveedores_internet`      (script_gestion_it.sql)
+13. `redes_wifi`                (script_gestion_it.sql, migration_redes_wifi.sql)
+14. `impresoras`                (migration_impresoras_tenants.sql)
+15. `tenants`                   (migration_impresoras_tenants.sql)
+
+--------------------------------------------------------------------------------
+5. SQL SCRIPTS CONSISTENCY & MISSING TABLES / FIELDS
+--------------------------------------------------------------------------------
+A. Missing Tables Referenced by Modules (absent from ALL `database/*.sql` files):
+   1. `infraestructura_red` — Required by `modules/configuracion/sucursales.php:21`, `modules/configuracion/guardar_sucursales.php:176`, `modules/infraestructura/index.php:31`, `modules/infraestructura/guardar.php:50,65,84,113,352`. Only exists in `scratch/setup_infra_db.php` and `scratch/backup_gestion_it_20261015.sql`.
+   2. `subredes` — Required by `modules/infraestructura/index.php:89`, `modules/infraestructura/guardar.php:480,492,513`. Only exists in `scratch/migrate_subredes.php`.
+   3. `recepciones_equipos` — Required by `modules/entregas/index.php` (runs `CREATE TABLE IF NOT EXISTS` inline at page load), `modules/entregas/guardar.php`, `modules/entregas/imprimir_acta.php`. Absent from `database/*.sql`.
+   4. `usuarios` — Referenced by `modules/configuracion/reset.php:30` (bug; actual table is `equipo_it`).
+
+B. Missing Fields Referenced by Modules:
+   1. `credenciales_web.usuario_it_id` — Required by `modules/infraestructura/index.php:55,73` and `modules/infraestructura/guardar.php:145,148,159`. Absent from both `script_gestion_it.sql` and `dump.sql` (only added ad-hoc in `scratch/alter_cred_web.php`).
+
+C. Broken / Missing Script References:
+   1. `database/script_gestion_it.sql` lines 178-179 lack `) ENGINE=InnoDB ...;` on `tareas_it`, causing SQL syntax failure.
+   2. `config/setup_db.php:22` attempts to load `database/schema.sql`, which does not exist in `database/`, and its hardcoded `TRUNCATE` list (lines 40-49) omits newer tables.
+
+D. Schema Inconsistencies (`script_gestion_it.sql` vs `dump.sql` vs `migrations` vs code):
+   1. `equipos.tipo` ENUM:
+      - `script_gestion_it.sql`: `('Laptop','Desktop','Servidor','Maquina Virtual','Switch','Firewall','AP','Impresora','Celular','Control de acceso','Otro')`
+      - `dump.sql`: `('Laptop','Desktop','Servidor','Maquina Virtual','Switch','Firewall','Access Point')` — lacks `'AP'`, `'Impresora'`, `'Celular'`, `'Control de acceso'`, `'Otro'`, and uses `'Access Point'` instead of `'AP'` (breaking `modules/equipos/guardar.php:43,333`).
+   2. `equipos.registrado_por` & `asignaciones.asignado_por / recibido_por`:
+      - `VARCHAR(150)` in `script_gestion_it.sql` vs `VARCHAR(100)` in `dump.sql` (and different column order in `equipos` / `asignaciones`).
+   3. Tables missing from `dump.sql`: `proveedores_internet`, `redes_wifi`, `impresoras`, `tenants` (plus `infraestructura_red`, `subredes`, `recepciones_equipos`).
+   4. Tables missing from `script_gestion_it.sql`: `impresoras`, `tenants` (plus `infraestructura_red`, `subredes`, `recepciones_equipos`).
+   5. `redes_wifi` duplicated in both `script_gestion_it.sql` and `migration_redes_wifi.sql` with minor type/nullability differences (`INT` vs `INT(11)`, `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` vs `NOT NULL DEFAULT CURRENT_TIMESTAMP`).
+
+--------------------------------------------------------------------------------
+6. DATABASE DESIGN, NORMALIZATION & FOREIGN KEY INTEGRITY
+--------------------------------------------------------------------------------
+* Normalization & Design Issues:
+  - Redundant transitive FK in `proveedores_internet`: stores both `empresa_id` and `sucursal_id` even though `sucursal_id -> sucursales.empresa_id` already determines `empresa_id`; no DB constraint prevents cross-company mismatch if a branch is reassigned.
+  - Denormalized string references instead of FKs: `equipos.registrado_por`, `asignaciones` (`entregado_a`, `devuelto_por`, `asignado_por`, `recibido_por`), and `recepciones_equipos` (`entregado_por`, `recibido_por`, `receptor_final`, `creado_por`) store free-text names instead of foreign keys to `empleados`/`equipo_it`.
+  - Free-text attributes: `empleados.cargo` and `empleados.departamento` lack lookup tables, leading to inconsistent strings (e.g., `'IT'` vs `'Tecnología'`).
+  - Missing UNIQUE constraints: `empresas.nombre`, `sucursales(empresa_id, nombre)`, `credenciales_equipos(equipo_id)` (1:1 assumed in `modules/credenciales/index.php:28`), `impresoras.numero_serie`, `redes_wifi(sucursal_id, ssid)`, and `tenants.correo` / `tenants.tenant_id_cloud`.
+  - Missing indexes on frequently filtered columns: `empleados.estado`, `asignaciones.fecha_devolucion`, `cuentas_m365.estado`, `impresoras.estado`, `proveedores_internet.estado`.
+
+* Foreign Key Integrity:
+  - `sucursales.empresa_id -> empresas(id) ON DELETE CASCADE` conflicts indirectly with `empleados.sucursal_id` and `equipos.sucursal_id` (`ON DELETE RESTRICT`), causing cascading company deletes to fail if any branch still has employees/equipment (prevented only by PHP check on `sucursales` in `guardar_sucursales.php`).
+  - `impresoras`, `redes_wifi`, `proveedores_internet`, and `subredes` all declare `ON DELETE CASCADE` on `sucursal_id`, yet `guardar_sucursales.php?action=eliminar_sucursal` does not check those tables—causing silent cascade deletion of printers, Wi-Fi networks, ISP links, and subnets when a branch is deleted.
+  - `asignaciones` uses `ON DELETE CASCADE` for both `equipo_id` and `empleado_id`, which erases historical audit trails if a hard delete occurs.
+  - `credenciales_web.usuario_it_id` FK (`ON DELETE SET NULL` -> `equipo_it(id)`) is missing from all `database/*.sql` scripts.
+  - `script_gestion_it.sql` fails before creating `tareas_it`'s FK (`fk_tarea_equipo_it`) and all subsequent tables due to the missing `);` at line 178.
+
+--------------------------------------------------------------------------------
+7. PRIORITY REMEDIATIONS RECOMMENDED
+--------------------------------------------------------------------------------
+1. Fix `database/script_gestion_it.sql` line 178 (`) ENGINE=InnoDB ...;`), consolidate `impresoras`, `tenants`, `infraestructura_red`, `subredes`, `recepciones_equipos`, and `credenciales_web.usuario_it_id` into the canonical schema, and unify `equipos.tipo` ENUM across schema and `dump.sql`.
+2. Fix `modules/configuracion/reset.php` line 30 (`$table !== 'equipo_it'`, or preserve `empresas`/`sucursales` too), enforce `Administrador` role, add CSRF token + password re-verification.
+3. Secure or remove web-based `modules/configuracion/restore.php` (enforce `Administrador` role, CSRF, `IS_LOCAL` check, strict SQL/format validation, avoid dropping tables before validation, disable arbitrary multi-statement execution in production).
+4. Enforce `Administrador` RBAC and CSRF tokens across all `modules/configuracion/*` and `modules/tareas/*` endpoints, convert all state-changing `GET` actions (`eliminar_sucursal`, `eliminar_empresa`, `tareas/guardar.php?action=status`) to `POST`, fix the open redirect in `guardar_sucursales.php`, and fix XSS/JS bugs in `sucursales.php` and `tareas/index.php` (including recurring task duplicate-completion guard in `tareas/guardar.php`).
+
+================================================================================
+SECCION 8: Scratch & Deployment Auditor
+================================================================================
+
+# Audit Report: `scratch/` Directory, Sensitive Files & Deployment Configuration (`c:\xampp\htdocs\IT_Software`)
+
+---
+
+## 1. `scratch/` Inventory & Disk Usage
+
+- **Total File Count:** **52 files** (all directly under `scratch/`, no subdirectories)
+- **Total Disk Usage:** **261,540 bytes** (**255.41 KB** / **~0.25 MB**)
+- **Breakdown by Type:**
+  - `.php`: 46 files — 102,739 bytes (100.33 KB)
+  - `.sql`: 1 file — 114,378 bytes (111.70 KB)
+  - `.html`: 4 files — 31,314 bytes (30.58 KB)
+  - `.ps1`: 1 file — 13,109 bytes (12.80 KB)
+
+### Complete File Listing (`scratch/`)
+1. `alter_cred_web.php` (663 B) — Unauthenticated schema migration (`ALTER TABLE credenciales_web`)
+2. `analyze_assignments.php` (4,533 B)
+3. `analyze_excel_branches.php` (3,529 B)
+4. `audit_excel_db.php` (5,004 B) — Parses `plantilla_personal nuevo (1).xlsx` including plaintext passwords/PINs
+5. `backup_gestion_it_20261015.sql` (114,378 B) — Full MariaDB dump of `gestion_it`
+6. `check_activos.php` (880 B)
+7. `check_all_asig.php` (494 B)
+8. `check_all_foreign_keys.php` (832 B)
+9. `check_asignaciones.php` (1,082 B)
+10. `check_backup_equipos.php` (892 B)
+11. `check_cp.php` (595 B)
+12. `check_db_and_excel.php` (896 B)
+13. `check_db_branches_emps.php` (2,881 B)
+14. `check_duplicate_empleados.php` (1,800 B)
+15. `check_empleados_detail.php` (1,506 B)
+16. `check_equipos_sucursales.php` (837 B)
+17. `check_foreign_exact.php` (2,011 B)
+18. `check_foreign_pins.php` (2,190 B)
+19. `check_infra_tables.php` (544 B)
+20. `check_it_members.php` (636 B)
+21. `check_special_eqs.php` (522 B)
+22. `compare_excel_db_detailed.php` (6,168 B)
+23. `compare_excel_db.php` (3,757 B)
+24. `diagnose_foreign_branches.php` (2,583 B)
+25. `dump_all_excel_by_company.php` (2,437 B)
+26. `dump_infra.php` (175 B)
+27. `execute_unification.php` (10,146 B) — DB unification script (currently `$isDryRun = true`, unauthenticated)
+28. `find_foreign_refs.php` (1,016 B)
+29. `fix_boveda_typo.php` (258 B)
+30. `generate_favicons.ps1` (13,109 B) — PowerShell icon generator script
+31. `generate_matrix.php` (4,076 B)
+32. `inspect_data.php` (1,523 B)
+33. `inspect_schema.php` (980 B)
+34. `inspect_suministros_managua.php` (1,701 B)
+35. `list_all_sucs_emps.php` (670 B)
+36. `match_employees.php` (2,752 B)
+37. `migrate_subredes.php` (5,089 B) — Creates & seeds `subredes` table (unauthenticated)
+38. `parse_excel.php` (3,558 B)
+39. `preview_favicon.html` (8,444 B)
+40. `render_favicon.html` (370 B)
+41. `run_real_unification.php` (9,680 B) — Live DB unification script (unauthenticated)
+42. `search_excel.php` (2,348 B)
+43. `search_terms.php` (453 B)
+44. `setup_infra_db.php` (5,983 B) — Creates & migrates `infraestructura_red` table (unauthenticated)
+45. `show_emp_cols.php` (261 B)
+46. `show_equipos_cols.php` (304 B)
+47. `test_clear_inputs.html` (3,970 B)
+48. `test_decrypt_remote.php` (927 B) — Queries `credenciales_personales`, calls `Security::decrypt()`, and **echoes plaintext passwords/PINs** without auth
+49. `test_pagination.html` (18,530 B)
+50. `test_plantilla.php` (245 B)
+51. `test_render_matriz.php` (1,481 B)
+52. `verify_unified_db.php` (1,841 B)
+
+---
+
+## 2. Is `scratch/` Exposed Publicly? Security Risk Assessment
+
+- **Git & CI/CD Deployment:** `scratch/` is listed in `.gitignore` and has never been committed (`git log --all -- scratch/` is empty). Because `.github/workflows/deploy.yml` deploys from `actions/checkout@v4`, `scratch/` is **not** currently deployed to InfinityFree by GitHub Actions.
+- **Local Web Server (XAMPP):** **YES — Exposed.** `scratch/` resides directly inside Apache's document root (`c:\xampp\htdocs\IT_Software\scratch\`) and there is **no `.htaccess`** anywhere in the project to block HTTP access or directory indexing. Anyone on the local network (e.g., if Apache listens on LAN) can browse and execute `/it_software/scratch/*.php` or download `backup_gestion_it_20261015.sql`.
+- **Deployment Blind Spot:** `scratch/**` is **not** in `deploy.yml`'s `exclude:` list. If `scratch/` is ever force-added to Git or manually uploaded via FTP, it will become immediately public at `https://<domain>/scratch/`.
+- **Critical Risks in `scratch/`:**
+  1. **Unauthenticated Plaintext Credential Dump (`test_decrypt_remote.php`):** No session/auth check; directly decrypts `credenciales_personales` for Honduras, Salvador, and Dominicana branches via `Security::decrypt()` and prints passwords/PINs in plaintext over HTTP.
+  2. **Database Backup (`backup_gestion_it_20261015.sql`):** 114 KB MariaDB dump containing assignments, employee IDs, and encrypted credentials.
+  3. **Unauthenticated DDL/DML Scripts (`alter_cred_web.php`, `setup_infra_db.php`, `migrate_subredes.php`, `run_real_unification.php`, `fix_boveda_typo.php`):** Executable via HTTP without authentication, capable of altering schema or mutating/deleting records.
+
+---
+
+## 3. Sensitive Files in the Repository
+
+**YES — Multiple critical sensitive files are tracked in Git (and some are deployed publicly):**
+
+| File | Tracked in Git? | Deployed to Prod (`/htdocs/`)? | Contents / Risk |
+|---|---|---|---|
+| `plantilla_personal nuevo (1).xlsx` | **Yes** | **Yes (PUBLIC!)** | 1 sheet (`plantilla_personal`, 147 rows). Contains employee names, roles, branches, emails, **plaintext `Pass Correo`**, **plaintext `PC PIN`**, **plaintext `Pass AG`**, Gmail addresses, and **`Pass Gmail`**. |
+| `Equipos Empresa.xlsx` | **Yes** | **Yes (PUBLIC!)** | 6 sheets (`Master Managua`, `Master Leon`, `Centro`, `Suministros Managua`, `Suministros Sebaco`, `Suministros Leon`, ~117 rows). Contains employee names, departments, hardware specs, and **device serial numbers (`Serie`)**. |
+| `database/dump.sql` | **Yes** | No (`database/**` excluded) | Full DB dump (`33.5 KB`) with `equipo_it` bcrypt password hashes, `credenciales_equipos`, `credenciales_personales`, and `cuentas_m365` encrypted passwords. |
+| `database/script_gestion_it.sql` | **Yes** | No (`database/**` excluded) | Full schema + initial `INSERT` statements including `equipo_it` admin emails and bcrypt hashes. |
+| `config/conexion.php` | **Yes** | Yes (server-side PHP) | **Hardcoded InfinityFree MySQL credentials** (`sql103.infinityfree.com`, user `if0_43167470`, password `q2WuKNEtrmdR8b`, DB `if0_43167470_gestion_it`). |
+| `config/security.php` | **Yes** | Yes (server-side PHP) | **Hardcoded AES-256-CBC symmetric key** (`b23a9d9431ec5e963bc1843ad8ea607f2df47bfd62054c30c8da26e2e5e1a3d9`). Anyone with repo access can decrypt every credential in `database/dump.sql` and `scratch/backup_gestion_it_20261015.sql`. |
+| `assets/alertas_log.html` | **Yes** | **Yes (PUBLIC!)** | Generated alert report HTML (`16/10/2026 14:05:16`, referencing "CuentasIT"). Currently contains "no alerts", but if `alertas_cron.php` runs in prod with critical alerts, it overwrites this file with task details and M365 license billing emails/dates in a public asset path. |
+
+---
+
+## 4. Deployment Pipeline (`.github/workflows/deploy.yml`)
+
+- **Trigger:** `on: push` to branches `main` and `master`.
+- **Runner & Checkout:** Runs on `ubuntu-latest`, checks out the repository using `actions/checkout@v4`.
+- **Deployment Method & Target:** Uses `SamKirkland/FTP-Deploy-Action@v4.3.5` to sync files via FTP into `/htdocs/` on InfinityFree (`gestionit.xo.je`), maintaining sync state in `.ftp-deploy-sync-state.json`.
+- **Exclusions Configured:**
+  - `**/.git*`, `**/.git*/**`, `**/.github/**`
+  - `**/node_modules/**`
+  - `database/**`, `sql/**`, `fix_deployment_db.sql`
+  - `*.txt`, `*.md`
+- **Gaps in Pipeline Exclusions:**
+  - Does **not** exclude `*.xlsx` / `*.xls` / `*.csv` → **Both root `.xlsx` spreadsheets with plaintext passwords and serial numbers are actively deployed to `/htdocs/`!**
+  - Does **not** exclude `scratch/**` (relies solely on `.gitignore`).
+  - Does **not** exclude `assets/alertas_log.html`.
+  - Contains dead exclusions (`sql/**` and `fix_deployment_db.sql` do not exist in the repo).
+
+### Credentials in `deploy.yml`
+- **FTP Password:** Properly secured via `${{ secrets.FTP_PASSWORD }}` (not hardcoded).
+- **FTP Server & Username:** **Partially hardcoded as fallback defaults:**
+  - `server: ${{ secrets.FTP_SERVER || 'ftpupload.net' }}`
+  - `username: ${{ secrets.FTP_USERNAME || 'if0_43167470' }}`
+  - Leaving the hosting provider and exact account username in plain text increases attack surface (especially alongside the leaked DB password for `if0_43167470` in `config/conexion.php`).
+
+---
+
+## 5. Additional Files Inspected
+
+- **`assets/alertas_log.html`:** Static HTML email log generated by `modules/tareas/alertas_cron.php` (line 166: `file_put_contents($log_dir . '/alertas_log.html', $html_body)`). Last updated `16/10/2026 14:05:16` with no pending alerts. Because it lives under `assets/` with no auth protection, any sensitive alert content written to it is publicly readable over HTTP.
+- **`assets/images/site.webmanifest`:** Valid PWA web manifest for `"Gestión IT - Sistema Empresarial"` (`short_name: "Gestión IT"`, `theme_color: "#111c44"`, `background_color: "#0b1120"`, `display: "standalone"`). Referenced by `includes/header.php` and `login.php`. All four declared icons (`favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`, `favicon-512x512.png`) exist in `assets/images/`.
+
+---
+
+## 6. `.gitignore` Completeness
+
+Current `.gitignore` (13 lines) only excludes:
+`.DS_Store`, `Thumbs.db`, `*.tmp`, `*.log`, `.vscode/`, `.idea/`, `*.bak`, `*.swp`, `scratch/`.
+
+**What SHOULD be excluded (missing):**
+1. `*.xlsx`, `*.xls`, `*.csv` — Prevents spreadsheets containing employee PII, passwords, and hardware serials from entering Git.
+2. `*.sql` (or `database/dump.sql`, `*.sql.gz`, `*.zip`) — Prevents DB dumps with hashes/encrypted secrets from being committed (keep clean schema/migration `.sql` files explicitly un-ignored if needed, e.g., `!database/script_gestion_it.sql`, `!database/migration_*.sql`).
+3. `.env`, `.env.*`, and environment-specific config files (once DB credentials in `config/conexion.php` and encryption key in `config/security.php` are extracted out of tracked code).
+4. `assets/alertas_log.html` — Runtime-generated log file; should not be tracked in Git.
+5. `vendor/` and `node_modules/` — `modules/tareas/alertas_cron.php` checks for `vendor/autoload.php` (PHPMailer); Composer dependencies should never be committed.
+6. `.ftp-deploy-sync-state.json` — Deployment sync state artifact.
+
+---
+
+## 7. Dead / Cleanup Candidate Files
+
+1. **Entire `scratch/` directory (52 files, 255.41 KB):** All one-off Excel parsers, DB audit/unification scripts, favicon generators, HTML UI tests, `test_decrypt_remote.php`, and `backup_gestion_it_20261015.sql`.
+2. **Root `.xlsx` files (tracked in Git, 0 references in production code):**
+   - `Equipos Empresa.xlsx` (32,791 B)
+   - `plantilla_personal nuevo (1).xlsx` (25,408 B) — only referenced by scripts in `scratch/`
+3. **Tracked runtime output:**
+   - `assets/alertas_log.html` (3,067 B) — overwritten by `alertas_cron.php`; should be untrack-removed (`git rm --cached`) and moved outside public `assets/` or protected.
+4. **Unused / duplicate image assets in `assets/images/`:**
+   - `assets/images/logo_master.png` (51,196 B) — 0 references anywhere in the codebase.
+   - `assets/images/favicon.ico` (9,070 B) — Exact SHA-256 duplicate (`755B1511301172B357885A5ABFD2E14B52C0C9FC8FB2D002F512B5256654180F`) of root `favicon.ico` (which is the one referenced by `header.php` and `login.php`).
+   - `assets/images/favicon-48x48.png` (5,255 B) — Only referenced in `scratch/preview_favicon.html`, unused by the live app or `site.webmanifest`.
+5. **Stale exclusions in `.github/workflows/deploy.yml`:**
+   - `sql/**` and `fix_deployment_db.sql` (neither exists in the repository).
+

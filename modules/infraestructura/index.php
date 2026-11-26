@@ -27,7 +27,7 @@ $sucursales = $db->query("
 // 2. Cargar Dispositivos de Infraestructura / Red
 try {
     $stmt_dev = $db->query("
-        SELECT ir.*, s.nombre as sucursal_nombre, e.nombre as empresa_nombre 
+        SELECT ir.*, s.nombre as sucursal_nombre, s.ubicacion as sucursal_ubicacion, e.nombre as empresa_nombre 
         FROM infraestructura_red ir
         LEFT JOIN sucursales s ON ir.sucursal_id = s.id
         LEFT JOIN empresas e ON s.empresa_id = e.id
@@ -527,8 +527,22 @@ require_once __DIR__ . '/../../includes/header.php';
                                 if ($d['estado'] === 'Mantenimiento') $badgeEstado = 'bg-amber-50 text-amber-700 border-amber-200';
                                 elseif ($d['estado'] === 'Falla') $badgeEstado = 'bg-rose-50 text-rose-700 border-rose-200';
                                 elseif ($d['estado'] === 'Inactivo') $badgeEstado = 'bg-slate-100 text-slate-500 border-slate-200';
+
+                                // Bandera de país por sede/ubicación
+                                $banderaInfra = '🇳🇮';
+                                $txtUbic = mb_strtolower(($d['sucursal_nombre'] ?? '') . ' ' . ($d['sucursal_ubicacion'] ?? ''), 'UTF-8');
+                                if (strpos($txtUbic, 'honduras') !== false) {
+                                    $banderaInfra = '🇭🇳';
+                                } elseif (strpos($txtUbic, 'salvador') !== false) {
+                                    $banderaInfra = '🇸🇻';
+                                } elseif (strpos($txtUbic, 'dominicana') !== false) {
+                                    $banderaInfra = '🇩🇴';
+                                }
                             ?>
-                                <tr class="hover:bg-slate-50/80 transition fila-infra" data-tipo="<?= htmlspecialchars($d['tipo']) ?>" data-sucursal="<?= htmlspecialchars($d['sucursal_nombre'] ?? '') ?>">
+                                <tr class="hover:bg-slate-50/80 transition fila-infra" 
+                                    data-tipo="<?= htmlspecialchars($d['tipo']) ?>" 
+                                    data-sucursal="<?= htmlspecialchars($d['sucursal_nombre'] ?? '') ?>"
+                                    data-empresa="<?= htmlspecialchars($d['empresa_nombre'] ?? '') ?>">
                                     <!-- Dispositivo -->
                                     <td class="py-3.5 px-4 font-bold text-slate-800">
                                         <div class="flex items-center gap-2">
@@ -559,10 +573,25 @@ require_once __DIR__ . '/../../includes/header.php';
 
                                     <!-- Sucursal & Ubicación -->
                                     <td class="py-3.5 px-4">
-                                        <p class="font-bold text-slate-700"><i class="fa-solid fa-building text-slate-400"></i> <?= htmlspecialchars($d['sucursal_nombre'] ?? 'Managua Central') ?></p>
-                                        <?php if (!empty($d['ubicacion_rack'])): ?>
-                                            <p class="text-[11px] text-slate-500 mt-0.5"><i class="fa-solid fa-box text-slate-400"></i> <?= htmlspecialchars($d['ubicacion_rack']) ?></p>
-                                        <?php endif; ?>
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-base leading-none" title="País"><?= $banderaInfra ?></span>
+                                            <div>
+                                                <p class="font-bold text-slate-800 text-xs">
+                                                    <?= htmlspecialchars($d['sucursal_nombre'] ?? 'Sin Sucursal') ?>
+                                                </p>
+                                                <div class="flex items-center gap-1.5 mt-0.5">
+                                                    <span class="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                                        <i class="fa-solid fa-building text-[9px] text-slate-400"></i>
+                                                        <?= htmlspecialchars($d['empresa_nombre'] ?? 'Sin Empresa') ?>
+                                                    </span>
+                                                    <?php if (!empty($d['ubicacion_rack'])): ?>
+                                                        <span class="text-[10px] text-slate-500 font-medium">
+                                                            • <?= htmlspecialchars($d['ubicacion_rack']) ?>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </td>
 
                                     <!-- Marca/Modelo/MAC -->
